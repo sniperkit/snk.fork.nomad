@@ -467,3 +467,15 @@ func TestServer_Reload_TLSConnections_Raft(t *testing.T) {
 
 	testutil.WaitForLeader(t, s2.RPC)
 }
+
+// TestServer_StartStop asserts the server can be started and stopped. Useful
+// when run with -race to test for races.
+func TestServer_StartStop(t *testing.T) {
+	t.Parallel()
+	s := testServer(t, nil)
+	defer s.Shutdown()
+	testutil.WaitForLeader(t, s.RPC)
+
+	// Give the server goroutines some time to do some work
+	time.Sleep(10 * time.Millisecond)
+}
