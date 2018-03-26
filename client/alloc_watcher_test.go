@@ -17,7 +17,9 @@ import (
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/client/testutil"
+	"github.com/hashicorp/nomad/helper/testlog"
 	"github.com/hashicorp/nomad/nomad/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // TestPrevAlloc_LocalPrevAlloc asserts that when a previous alloc runner is
@@ -33,7 +35,7 @@ func TestPrevAlloc_LocalPrevAlloc(t *testing.T) {
 	task.Driver = "mock_driver"
 	task.Config["run_for"] = "500ms"
 
-	waiter := newAllocWatcher(newAlloc, prevAR, nil, nil, testLogger(), "")
+	waiter := newAllocWatcher(newAlloc, prevAR, nil, nil, testlog.Logger(t), "")
 
 	// Wait in a goroutine with a context to make sure it exits at the right time
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,7 +49,7 @@ func TestPrevAlloc_LocalPrevAlloc(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatalf("Wait exited too early")
 	case <-time.After(33 * time.Millisecond):
-		// Good! It's blocking
+		t.Logf("Previous alloc %q blocking as expected", prevAR.allocID)
 	}
 
 	// Start the previous allocs to cause it to update but not terminate
@@ -58,7 +60,7 @@ func TestPrevAlloc_LocalPrevAlloc(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatalf("Wait exited too early")
 	case <-time.After(33 * time.Millisecond):
-		// Good! It's still blocking
+		t.Logf("Previous alloc %q blocking as expected", prevAR.allocID)
 	}
 
 	// Stop the previous alloc
@@ -66,7 +68,7 @@ func TestPrevAlloc_LocalPrevAlloc(t *testing.T) {
 
 	select {
 	case <-ctx.Done():
-		// Good! We unblocked when the previous alloc stopped
+		t.Logf("Previous alloc %q unblocked as expected", prevAR.allocID)
 	case <-time.After(time.Second):
 		t.Fatalf("Wait exited too early")
 	}
@@ -184,7 +186,7 @@ func TestPrevAlloc_StreamAllocDir_Ok(t *testing.T) {
 
 	rc := ioutil.NopCloser(buf)
 
-	prevAlloc := &remotePrevAlloc{logger: testLogger()}
+	prevAlloc := &remotePrevAlloc{logger: testlog.Logger(t)}
 	if err := prevAlloc.streamAllocDir(context.Background(), rc, dir1); err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -225,16 +227,16 @@ func TestPrevAlloc_StreamAllocDir_Ok(t *testing.T) {
 // (migrations are atomic).
 func TestPrevAlloc_StreamAllocDir_Error(t *testing.T) {
 	t.Parallel()
+	require := require.New(t)
+
 	dest, err := ioutil.TempDir("", "nomadtest-")
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.Nil(err)
 	defer os.RemoveAll(dest)
 
 	// This test only unit tests streamAllocDir so we only need a partially
 	// complete remotePrevAlloc
 	prevAlloc := &remotePrevAlloc{
-		logger:      testLogger(),
+		logger:      testlog.Logger(t),
 		allocID:     "123",
 		prevAllocID: "abc",
 		migrate:     true,
@@ -250,12 +252,9 @@ func TestPrevAlloc_StreamAllocDir_Error(t *testing.T) {
 		Typeflag: tar.TypeReg,
 	}
 	err = tw.WriteHeader(&fooHdr)
-	if err != nil {
-		t.Fatalf("error writing file header: %v", err)
-	}
-	if _, err := tw.Write([]byte{'a'}); err != nil {
-		t.Fatalf("error writing file: %v", err)
-	}
+	require.Nil(err, "error writing file header")
+	_, err = tw.Write([]byte{'a'})
+	require.Nil(err, "error writing file")
 
 	// Now write the error file
 	contents := []byte("SENTINEL ERROR")
@@ -268,18 +267,13 @@ func TestPrevAlloc_StreamAllocDir_Error(t *testing.T) {
 		ModTime:    allocdir.SnapshotErrorTime,
 		Typeflag:   tar.TypeReg,
 	})
-	if err != nil {
-		t.Fatalf("error writing sentinel file header: %v", err)
-	}
-	if _, err := tw.Write(contents); err != nil {
-		t.Fatalf("error writing sentinel file: %v", err)
-	}
+	require.Nil(err, "error writing sentinel file header")
+	_, err = tw.Write(contents)
+	require.Nil(err, "error writing sentinel file")
 
 	// Assert streamAllocDir fails
 	err = prevAlloc.streamAllocDir(context.Background(), ioutil.NopCloser(tarBuf), dest)
-	if err == nil {
-		t.Fatalf("expected an error from streamAllocDir")
-	}
+	require.NotNil(err, "expected an error from streamAllocDir")
 	if !strings.HasSuffix(err.Error(), string(contents)) {
 		t.Fatalf("expected error to end with %q but found: %v", string(contents), err)
 	}
@@ -287,10 +281,6 @@ func TestPrevAlloc_StreamAllocDir_Error(t *testing.T) {
 	// streamAllocDir leaves cleanup to the caller on error, so assert
 	// "foo.txt" was written
 	fi, err := os.Stat(filepath.Join(dest, "foo.txt"))
-	if err != nil {
-		t.Fatalf("error reading foo.txt: %v", err)
-	}
-	if fi.Size() != fooHdr.Size {
-		t.Fatalf("expected foo.txt to be size 1 but found %d", fi.Size())
-	}
+	require.Nil(err, "error reading foo.txt")
+	require.Equal(fooHdr.Size, fi.Size())
 }
