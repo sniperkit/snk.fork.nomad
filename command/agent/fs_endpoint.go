@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -327,10 +328,13 @@ func (s *HTTPServer) fsStreamImpl(resp http.ResponseWriter,
 	var handler structs.StreamingRpcHandler
 	var handlerErr error
 	if localClient {
+		s.logger.Printf("[DEBUG] -----> %s local  handler", method)
 		handler, handlerErr = s.agent.Client().StreamingRpcHandler(method)
 	} else if remoteClient {
+		s.logger.Printf("[DEBUG] -----> %s remote handler", method)
 		handler, handlerErr = s.agent.Client().RemoteStreamingRpcHandler(method)
 	} else if localServer {
+		s.logger.Printf("[DEBUG] -----> %s local SERVER handler", method)
 		handler, handlerErr = s.agent.Server().StreamingRpcHandler(method)
 	}
 
@@ -338,27 +342,29 @@ func (s *HTTPServer) fsStreamImpl(resp http.ResponseWriter,
 		return nil, CodedError(500, handlerErr.Error())
 	}
 
-	p1, p2 := net.Pipe()
-	decoder := codec.NewDecoder(p1, structs.MsgpackHandle)
-	encoder := codec.NewEncoder(p1, structs.MsgpackHandle)
+	// Create a pipe connecting the (possibly remote) handler to the http response
+	httpPipe, handlerPipe := net.Pipe()
+	decoder := codec.NewDecoder(httpPipe, structs.MsgpackHandle)
+	encoder := codec.NewEncoder(httpPipe, structs.MsgpackHandle)
 
 	// Create a goroutine that closes the pipe if the connection closes.
 	ctx, cancel := context.WithCancel(req.Context())
 	go func() {
 		<-ctx.Done()
-		p1.Close()
+		httpPipe.Close()
 	}()
 
 	// Create an output that gets flushed on every write
 	output := ioutils.NewWriteFlusher(resp)
 
 	// Create a channel that decodes the results
-	errCh := make(chan HTTPCodedError)
+	errCh := make(chan HTTPCodedError, 1)
 	go func() {
+		defer cancel()
+
 		// Send the request
 		if err := encoder.Encode(args); err != nil {
 			errCh <- CodedError(500, err.Error())
-			cancel()
 			return
 		}
 
@@ -366,7 +372,6 @@ func (s *HTTPServer) fsStreamImpl(resp http.ResponseWriter,
 			select {
 			case <-ctx.Done():
 				errCh <- nil
-				cancel()
 				return
 			default:
 			}
@@ -374,27 +379,25 @@ func (s *HTTPServer) fsStreamImpl(resp http.ResponseWriter,
 			var res cstructs.StreamErrWrapper
 			if err := decoder.Decode(&res); err != nil {
 				errCh <- CodedError(500, err.Error())
-				cancel()
 				return
 			}
 
 			if err := res.Error; err != nil {
 				if err.Code != nil {
 					errCh <- CodedError(int(*err.Code), err.Error())
-					cancel()
 					return
 				}
 			}
 
+			log.Printf("[DEBUG] XXX http: streaming payload read from http pipe")
 			if _, err := io.Copy(output, bytes.NewBuffer(res.Payload)); err != nil {
 				errCh <- CodedError(500, err.Error())
-				cancel()
 				return
 			}
 		}
 	}()
 
-	handler(p2)
+	handler(handlerPipe)
 	cancel()
 	codedErr := <-errCh
 	if codedErr != nil &&

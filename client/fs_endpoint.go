@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -309,6 +310,7 @@ OUTER:
 func (f *FileSystem) logs(conn io.ReadWriteCloser) {
 	defer metrics.MeasureSince([]string{"client", "file_system", "logs"}, time.Now())
 	defer conn.Close()
+	defer log.Printf("[DEBUG] client.fs: logs -> conn.Close()")
 
 	// Decode the arguments
 	var req cstructs.FsLogsRequest
@@ -405,13 +407,12 @@ func (f *FileSystem) logs(conn io.ReadWriteCloser) {
 
 	frames := make(chan *sframer.StreamFrame, streamFramesBuffer)
 	errCh := make(chan error)
-	var buf bytes.Buffer
-	frameCodec := codec.NewEncoder(&buf, structs.JsonHandle)
 
 	// Start streaming
 	go func() {
 		if err := f.logsImpl(ctx, req.Follow, req.PlainText,
 			req.Offset, req.Origin, req.Task, req.LogType, fs, frames); err != nil {
+			log.Printf("[ERROR] client.fs: WRITE failed with error [%T] %v", err, err)
 			select {
 			case errCh <- err:
 			case <-ctx.Done():
@@ -422,23 +423,27 @@ func (f *FileSystem) logs(conn io.ReadWriteCloser) {
 	// Create a goroutine to detect the remote side closing
 	go func() {
 		for {
+			log.Printf("[DEBUG] XXX client.fs: READ LOOP")
 			if _, err := conn.Read(nil); err != nil {
 				if err == io.EOF {
 					cancel()
 					return
 				}
+				log.Printf("[ERROR] client.fs: READ  failed with error [%T] %v", err, err)
 				select {
 				case errCh <- err:
 				case <-ctx.Done():
-					return
 				}
+				return
 			}
 		}
 	}()
 
 	var streamErr error
+	var buf bytes.Buffer
+	frameCodec := codec.NewEncoder(&buf, structs.JsonHandle)
 OUTER:
-	for {
+	for i := 0; ; i++ {
 		select {
 		case streamErr = <-errCh:
 			break OUTER
@@ -456,10 +461,15 @@ OUTER:
 					break OUTER
 				}
 
+				//TODO(schmichael) I *think* this is true?
+				// Safe to use buffer's backing slice directly
+				// because it's copied below when Encoding
 				resp.Payload = buf.Bytes()
 				buf.Reset()
 			}
 
+			log.Printf("[DEBUG] XXX client.fs: writing frame %d to handler pipe; offset=%d fn=%s len=%d",
+				i, frame.Offset, frame.File, len(frame.Data))
 			if err := encoder.Encode(resp); err != nil {
 				streamErr = err
 				break OUTER
@@ -576,12 +586,7 @@ func (f *FileSystem) logsImpl(ctx context.Context, follow, plain bool, offset in
 		// #3342
 		select {
 		case <-framer.ExitCh():
-			err := parseFramerErr(framer.Err())
-			if err == syscall.EPIPE {
-				// EPIPE just means the connection was closed
-				return nil
-			}
-			return err
+			return nil
 		default:
 		}
 
@@ -597,6 +602,8 @@ func (f *FileSystem) logsImpl(ctx context.Context, follow, plain bool, offset in
 // the connection is broken an EPIPE error is returned
 func (f *FileSystem) streamFile(ctx context.Context, offset int64, path string, limit int64,
 	fs allocdir.AllocDirFS, framer *sframer.StreamFramer, eofCancelCh chan error) error {
+
+	log.Printf("[DEBUG] client.fs: stream file offset=%d path=%q limit=%v", offset, path, limit)
 
 	// Get the reader
 	file, err := fs.ReadAt(path, offset)
@@ -636,6 +643,8 @@ OUTER:
 
 		// Update the offset
 		offset += int64(n)
+
+		log.Printf("[DEBUG] client.fs: ---stream file offset=%d n=%v len=%v cap=%v", offset, n, len(data), cap(data))
 
 		// Return non-EOF errors
 		if readErr != nil && readErr != io.EOF {
@@ -705,7 +714,7 @@ OUTER:
 				lastEvent = truncateEvent
 				continue OUTER
 			case <-framer.ExitCh():
-				return parseFramerErr(framer.Err())
+				return nil
 			case <-ctx.Done():
 				return nil
 			case err, ok := <-eofCancelCh:

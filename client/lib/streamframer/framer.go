@@ -41,7 +41,7 @@ func (s *StreamFrame) Clear() {
 	s.FileEvent = ""
 }
 
-func (s *StreamFrame) IsCleared() bool {
+func (s *StreamFrame) Empty() bool {
 	if s.Offset != 0 {
 		return false
 	} else if s.Data != nil {
@@ -55,6 +55,14 @@ func (s *StreamFrame) IsCleared() bool {
 	}
 }
 
+func (s *StreamFrame) Copy() *StreamFrame {
+	n := new(StreamFrame)
+	*n = *s
+	n.Data = make([]byte, len(s.Data))
+	copy(n.Data, s.Data)
+	return n
+}
+
 // StreamFramer is used to buffer and send frames as well as heartbeat.
 type StreamFramer struct {
 	out chan<- *StreamFrame
@@ -64,15 +72,20 @@ type StreamFramer struct {
 	heartbeat *time.Ticker
 	flusher   *time.Ticker
 
-	shutdown   bool
+	// shutdown is true when a shutdown is triggered
+	shutdown bool
+
+	// shutdownCh is closed when a shutdown is triggered
 	shutdownCh chan struct{}
-	exitCh     chan struct{}
+
+	// exitCh is closed when the run() goroutine exits
+	exitCh chan struct{}
 
 	// The mutex protects everything below
 	l sync.Mutex
 
 	// The current working frame
-	f    StreamFrame
+	f    *StreamFrame
 	data *bytes.Buffer
 
 	// Captures whether the framer is running and any error that occurred to
@@ -95,6 +108,7 @@ func NewStreamFramer(out chan<- *StreamFrame,
 		frameSize:  frameSize,
 		heartbeat:  heartbeat,
 		flusher:    flusher,
+		f:          new(StreamFrame),
 		data:       bytes.NewBuffer(make([]byte, 0, 2*frameSize)),
 		shutdownCh: make(chan struct{}),
 		exitCh:     make(chan struct{}),
@@ -144,21 +158,12 @@ func (s *StreamFramer) ExitCh() <-chan struct{} {
 	return s.exitCh
 }
 
-// Err returns the error that caused the StreamFramer to exit
-func (s *StreamFramer) Err() error {
-	s.l.Lock()
-	defer s.l.Unlock()
-	return s.err
-}
-
 // run is the internal run method. It exits if Destroy is called or an error
 // occurs, in which case the exit channel is closed.
 func (s *StreamFramer) run() {
-	var err error
 	defer func() {
 		s.l.Lock()
 		s.running = false
-		s.err = err
 		s.l.Unlock()
 		close(s.exitCh)
 	}()
@@ -171,46 +176,37 @@ OUTER:
 		case <-s.flusher.C:
 			// Skip if there is nothing to flush
 			s.l.Lock()
-			if s.f.IsCleared() {
+			if s.f.Empty() {
 				s.l.Unlock()
 				continue
 			}
 
 			// Read the data for the frame, and send it
-			s.f.Data = s.readData()
-			err = s.send(&s.f)
-			s.f.Clear()
+			s.send()
 			s.l.Unlock()
-			if err != nil {
-				return
-			}
 		case <-s.heartbeat.C:
 			// Send a heartbeat frame
-			if err = s.send(HeartbeatStreamFrame); err != nil {
-				return
+			select {
+			case s.out <- HeartbeatStreamFrame:
+			case <-s.exitCh:
 			}
 		}
 	}
 
 	s.l.Lock()
-	if !s.f.IsCleared() {
-		s.f.Data = s.readData()
-		err = s.send(&s.f)
-		s.f.Clear()
+	if !s.f.Empty() {
+		s.send()
 	}
 	s.l.Unlock()
 }
 
 // send takes a StreamFrame, encodes and sends it
-func (s *StreamFramer) send(f *StreamFrame) error {
-	sending := *f
-	f.Data = nil
-
+func (s *StreamFramer) send() {
+	s.f.Data = s.readData()
 	select {
-	case s.out <- &sending:
-		return nil
+	case s.out <- s.f.Copy():
+		s.f.Clear()
 	case <-s.exitCh:
-		return nil
 	}
 }
 
@@ -240,31 +236,17 @@ func (s *StreamFramer) Send(file, fileEvent string, data []byte, offset int64) e
 	// If we are not running, return the error that caused us to not run or
 	// indicated that it was never started.
 	if !s.running {
-		if s.err != nil {
-			return s.err
-		}
-
 		return fmt.Errorf("StreamFramer not running")
 	}
 
 	// Check if not mergeable
-	if !s.f.IsCleared() && (s.f.File != file || s.f.FileEvent != fileEvent) {
+	if !s.f.Empty() && (s.f.File != file || s.f.FileEvent != fileEvent) {
 		// Flush the old frame
-		s.f.Data = s.readData()
-		select {
-		case <-s.exitCh:
-			return nil
-		default:
-		}
-		err := s.send(&s.f)
-		s.f.Clear()
-		if err != nil {
-			return err
-		}
+		s.send()
 	}
 
 	// Store the new data as the current frame.
-	if s.f.IsCleared() {
+	if s.f.Empty() {
 		s.f.Offset = offset
 		s.f.File = file
 		s.f.FileEvent = fileEvent
@@ -288,21 +270,13 @@ func (s *StreamFramer) Send(file, fileEvent string, data []byte, offset int64) e
 		// Create a new frame to send it
 		s.f.Data = s.readData()
 		select {
+		case s.out <- s.f.Copy():
 		case <-s.exitCh:
 			return nil
-		default:
-		}
-
-		if err := s.send(&s.f); err != nil {
-			return err
 		}
 
 		// Update the offset
 		s.f.Offset += int64(len(s.f.Data))
-	}
-
-	if s.data.Len() == 0 {
-		s.f.Clear()
 	}
 
 	return nil
