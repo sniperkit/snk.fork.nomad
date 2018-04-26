@@ -367,6 +367,7 @@ func (s *HTTPServer) fsStreamImpl(resp http.ResponseWriter,
 			errCh <- CodedError(500, err.Error())
 			return
 		}
+		encoder.Reset(httpPipe)
 
 		for {
 			select {
@@ -381,6 +382,7 @@ func (s *HTTPServer) fsStreamImpl(resp http.ResponseWriter,
 				errCh <- CodedError(500, err.Error())
 				return
 			}
+			decoder.Reset(httpPipe)
 
 			if err := res.Error; err != nil {
 				if err.Code != nil {
@@ -390,7 +392,7 @@ func (s *HTTPServer) fsStreamImpl(resp http.ResponseWriter,
 			}
 
 			log.Printf("[DEBUG] XXX http: streaming payload read from http pipe")
-			if _, err := io.Copy(output, bytes.NewBuffer(res.Payload)); err != nil {
+			if _, err := io.Copy(output, bytes.NewReader(res.Payload)); err != nil {
 				errCh <- CodedError(500, err.Error())
 				return
 			}

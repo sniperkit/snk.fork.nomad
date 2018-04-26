@@ -158,6 +158,7 @@ func (f *FileSystem) stream(conn io.ReadWriteCloser) {
 		f.handleStreamResultError(err, helper.Int64ToPtr(500), encoder)
 		return
 	}
+	decoder.Reset(conn)
 
 	// Check read permissions
 	if aclObj, err := f.c.ResolveToken(req.QueryOptions.AuthToken); err != nil {
@@ -295,6 +296,7 @@ OUTER:
 				streamErr = err
 				break OUTER
 			}
+			encoder.Reset(conn)
 		case <-ctx.Done():
 			break OUTER
 		}
@@ -321,6 +323,7 @@ func (f *FileSystem) logs(conn io.ReadWriteCloser) {
 		f.handleStreamResultError(err, helper.Int64ToPtr(500), encoder)
 		return
 	}
+	decoder.Reset(conn)
 
 	// Check read permissions
 	if aclObj, err := f.c.ResolveToken(req.QueryOptions.AuthToken); err != nil {
@@ -440,8 +443,8 @@ func (f *FileSystem) logs(conn io.ReadWriteCloser) {
 	}()
 
 	var streamErr error
-	var buf bytes.Buffer
-	frameCodec := codec.NewEncoder(&buf, structs.JsonHandle)
+	buf := new(bytes.Buffer)
+	frameCodec := codec.NewEncoder(buf, structs.JsonHandle)
 OUTER:
 	for i := 0; ; i++ {
 		select {
@@ -460,20 +463,25 @@ OUTER:
 					streamErr = err
 					break OUTER
 				}
+				//frameCodec.Reset(buf)
 
 				//TODO(schmichael) I *think* this is true?
 				// Safe to use buffer's backing slice directly
 				// because it's copied below when Encoding
 				resp.Payload = buf.Bytes()
-				buf.Reset()
+				//buf.Reset()
+
+				buf = new(bytes.Buffer)
+				frameCodec = codec.NewEncoder(buf, structs.JsonHandle)
 			}
 
-			log.Printf("[DEBUG] XXX client.fs: writing frame %d to handler pipe; offset=%d fn=%s len=%d",
+			log.Printf("[DEBUG] XXX client.fs: writing frame %d to handler pipE; OFFSet=%d fn=%s len=%d",
 				i, frame.Offset, frame.File, len(frame.Data))
 			if err := encoder.Encode(resp); err != nil {
 				streamErr = err
 				break OUTER
 			}
+			encoder.Reset(conn)
 		}
 	}
 

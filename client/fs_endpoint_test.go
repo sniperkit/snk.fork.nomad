@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	units "github.com/docker/go-units"
 	"github.com/hashicorp/nomad/acl"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/config"
@@ -1149,7 +1150,8 @@ func TestFS_Logs(t *testing.T) {
 	defer c.Shutdown()
 
 	// Force an allocation onto the node
-	expected := "Hello from the other side"
+	//expected := "Hello from the other side"
+	expected := strings.Repeat("0123456789\n", 500*units.KB)
 	a := mock.Alloc()
 	a.Job.Type = structs.JobTypeBatch
 	a.NodeID = c.NodeID()
