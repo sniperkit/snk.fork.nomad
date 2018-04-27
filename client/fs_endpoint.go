@@ -475,7 +475,7 @@ OUTER:
 				frameCodec = codec.NewEncoder(buf, structs.JsonHandle)
 			}
 
-			log.Printf("[DEBUG] XXX client.fs: writing frame %d to handler pipE; OFFSet=%d fn=%s len=%d",
+			log.Printf("[DEBUG] XXX client.fs: writing frame %d to handler pipe; offset=%d fn=%s len=%d",
 				i, frame.Offset, frame.File, len(frame.Data))
 			if err := encoder.Encode(resp); err != nil {
 				streamErr = err
