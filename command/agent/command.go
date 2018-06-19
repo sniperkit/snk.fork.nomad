@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -375,9 +376,9 @@ func (c *Command) setupLoggers(config *Config) (*gatedwriter.Writer, *logWriter,
 }
 
 // setupAgent is used to start the agent and various interfaces
-func (c *Command) setupAgent(config *Config, logOutput io.Writer, inmem *metrics.InmemSink) error {
+func (c *Command) setupAgent(ctx context.Context, config *Config, logOutput io.Writer, inmem *metrics.InmemSink) error {
 	c.Ui.Output("Starting Nomad agent...")
-	agent, err := NewAgent(config, logOutput, inmem)
+	agent, err := NewAgent(ctx, config, logOutput, inmem)
 	if err != nil {
 		c.Ui.Error(fmt.Sprintf("Error starting agent: %s", err))
 		return err
@@ -488,12 +489,15 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Create the agent
-	if err := c.setupAgent(config, logOutput, inmem); err != nil {
+	if err := c.setupAgent(ctx, config, logOutput, inmem); err != nil {
 		logGate.Flush()
 		return 1
 	}
-	defer c.agent.Shutdown()
+	defer c.agent.Shutdown(ctx)
 
 	// Shutdown the HTTP server at the end
 	defer func() {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -72,13 +73,17 @@ type Agent struct {
 }
 
 // NewAgent is used to create a new agent with the given configuration
-func NewAgent(config *Config, logOutput io.Writer, inmem *metrics.InmemSink) (*Agent, error) {
+func NewAgent(ctx context.Context, config *Config, logOutput io.Writer, inmem *metrics.InmemSink) (*Agent, error) {
+
+	agentCtx, agentCancel := context.WithCancel(ctx)
+
 	a := &Agent{
-		config:     config,
-		logger:     log.New(logOutput, "", log.LstdFlags|log.Lmicroseconds),
-		logOutput:  logOutput,
-		shutdownCh: make(chan struct{}),
-		InmemSink:  inmem,
+		config:    config,
+		logger:    log.New(logOutput, "", log.LstdFlags|log.Lmicroseconds),
+		logOutput: logOutput,
+		cancel:    agentCancel,
+		//shutdownCh: make(chan struct{}),
+		InmemSink: inmem,
 	}
 
 	// Global logger should match internal logger as much as possible
@@ -90,7 +95,7 @@ func NewAgent(config *Config, logOutput io.Writer, inmem *metrics.InmemSink) (*A
 	if err := a.setupServer(); err != nil {
 		return nil, err
 	}
-	if err := a.setupClient(); err != nil {
+	if err := a.setupClient(agentCtx); err != nil {
 		return nil, err
 	}
 	if a.client == nil && a.server == nil {
@@ -629,7 +634,7 @@ LOAD:
 }
 
 // setupClient is used to setup the client if enabled
-func (a *Agent) setupClient() error {
+func (a *Agent) setupClient(ctx context.Context) error {
 	if !a.config.Client.Enabled {
 		return nil
 	}
@@ -647,7 +652,7 @@ func (a *Agent) setupClient() error {
 		}
 	}
 
-	client, err := client.NewClient(conf, a.consulCatalog, a.consulService, a.logger)
+	client, err := client.NewClient(ctx, conf, a.consulCatalog, a.consulService, a.logger)
 	if err != nil {
 		return fmt.Errorf("client setup failed: %v", err)
 	}
@@ -804,6 +809,8 @@ func (a *Agent) Shutdown() error {
 	if a.shutdown {
 		return nil
 	}
+
+	defer a.cancel()
 
 	a.logger.Println("[INFO] agent: requesting shutdown")
 	if a.client != nil {

@@ -4,6 +4,7 @@
 package servers
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"net"
@@ -150,8 +151,8 @@ type Manager struct {
 	// rebalanceTimer controls the duration of the rebalance interval
 	rebalanceTimer *time.Timer
 
-	// shutdownCh is a copy of the channel in Nomad.Client
-	shutdownCh chan struct{}
+	//shutdownCh is closed when the parent context is cancelled
+	shutdownCh <-chan struct{}
 
 	logger *log.Logger
 
@@ -168,12 +169,12 @@ type Manager struct {
 }
 
 // New is the only way to safely create a new Manager struct.
-func New(logger *log.Logger, shutdownCh chan struct{}, connPoolPinger Pinger) (m *Manager) {
+func New(ctx context.Context, logger *log.Logger, connPoolPinger Pinger) (m *Manager) {
 	return &Manager{
 		logger:         logger,
 		connPoolPinger: connPoolPinger,
 		rebalanceTimer: time.NewTimer(clientRPCMinReuseDuration),
-		shutdownCh:     shutdownCh,
+		shutdownCh:     ctx.Done(),
 	}
 }
 

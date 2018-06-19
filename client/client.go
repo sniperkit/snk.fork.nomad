@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -164,8 +165,12 @@ type Client struct {
 	// HostStatsCollector collects host resource usage stats
 	hostStatsCollector *stats.HostStatsCollector
 
-	shutdown     bool
-	shutdownCh   chan struct{}
+	// cancel the Client and shut them down
+	cancel func()
+
+	//XXX
+	//shutdown     bool
+	//shutdownCh   chan struct{}
 	shutdownLock sync.Mutex
 
 	// vaultClient is used to interact with Vault for token and secret renewals
@@ -196,7 +201,11 @@ var (
 )
 
 // NewClient is used to create a new client from the given configuration
-func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulService consulApi.ConsulServiceAPI, logger *log.Logger) (*Client, error) {
+func NewClient(ctx context.Context, cfg *config.Config, consulCatalog consul.CatalogAPI, consulService consulApi.ConsulServiceAPI, logger *log.Logger) (*Client, error) {
+
+	// Create a parent client context
+	clientCtx, clientCancel := context.WithCancel(ctx)
+
 	// Create the tls wrapper
 	var tlsWrap tlsutil.RegionWrapper
 	if cfg.TLSConfig.EnableRPC {
@@ -212,24 +221,25 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulServic
 
 	// Create the client
 	c := &Client{
-		config:               cfg,
-		consulCatalog:        consulCatalog,
-		consulService:        consulService,
-		start:                time.Now(),
-		connPool:             pool.NewPool(cfg.LogOutput, clientRPCCache, clientMaxStreams, tlsWrap),
-		tlsWrap:              tlsWrap,
-		streamingRpcs:        structs.NewStreamingRpcRegistry(),
-		logger:               logger,
-		allocs:               make(map[string]*allocrunner.AllocRunner),
-		allocUpdates:         make(chan *structs.Allocation, 64),
-		shutdownCh:           make(chan struct{}),
+		config:        cfg,
+		consulCatalog: consulCatalog,
+		consulService: consulService,
+		start:         time.Now(),
+		connPool:      pool.NewPool(cfg.LogOutput, clientRPCCache, clientMaxStreams, tlsWrap),
+		tlsWrap:       tlsWrap,
+		streamingRpcs: structs.NewStreamingRpcRegistry(),
+		logger:        logger,
+		allocs:        make(map[string]*allocrunner.AllocRunner),
+		allocUpdates:  make(chan *structs.Allocation, 64),
+		cancel:        clientCancel,
+		//shutdownCh:           make(chan struct{}),
 		triggerDiscoveryCh:   make(chan struct{}),
 		triggerNodeUpdate:    make(chan struct{}, 8),
 		triggerEmitNodeEvent: make(chan *structs.NodeEvent, 8),
 	}
 
 	// Initialize the server manager
-	c.servers = servers.New(c.logger, c.shutdownCh, c)
+	c.servers = servers.New(clientCtx, c.logger, c)
 
 	// Initialize the client
 	if err := c.init(); err != nil {
@@ -330,7 +340,7 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulServic
 	go c.allocSync()
 
 	// Start the client!
-	go c.run()
+	go c.run(clientCtx)
 
 	// Start collecting stats
 	go c.emitStats()
@@ -502,6 +512,8 @@ func (c *Client) Shutdown() error {
 	if c.shutdown {
 		return nil
 	}
+
+	defer c.cancel()
 
 	// Defer closing the database
 	defer func() {
@@ -1304,7 +1316,7 @@ func (c *Client) periodicSnapshot() {
 }
 
 // run is a long lived goroutine used to run the client
-func (c *Client) run() {
+func (c *Client) run(ctx context.Context) {
 	// Watch for changes in allocations
 	allocUpdates := make(chan *allocUpdates, 8)
 	go c.watchAllocations(allocUpdates)
@@ -1312,9 +1324,9 @@ func (c *Client) run() {
 	for {
 		select {
 		case update := <-allocUpdates:
-			c.runAllocs(update)
+			c.runAllocs(ctx, update)
 
-		case <-c.shutdownCh:
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -1824,7 +1836,7 @@ func (c *Client) watchNodeUpdates() {
 }
 
 // runAllocs is invoked when we get an updated set of allocations
-func (c *Client) runAllocs(update *allocUpdates) {
+func (c *Client) runAllocs(ctx context.Context, update *allocUpdates) {
 	// Get the existing allocs
 	c.allocLock.RLock()
 	exist := make([]*structs.Allocation, 0, len(c.allocs))
@@ -1858,7 +1870,7 @@ func (c *Client) runAllocs(update *allocUpdates) {
 	// Start the new allocations
 	for _, add := range diff.added {
 		migrateToken := update.migrateTokens[add.ID]
-		if err := c.addAlloc(add, migrateToken); err != nil {
+		if err := c.addAlloc(ctx, add, migrateToken); err != nil {
 			c.logger.Printf("[ERR] client: failed to add alloc '%s': %v",
 				add.ID, err)
 		}
@@ -1907,7 +1919,7 @@ func (c *Client) updateAlloc(exist, update *structs.Allocation) error {
 }
 
 // addAlloc is invoked when we should add an allocation
-func (c *Client) addAlloc(alloc *structs.Allocation, migrateToken string) error {
+func (c *Client) addAlloc(ctx context.Context, alloc *structs.Allocation, migrateToken string) error {
 	// Check if we already have an alloc runner
 	c.allocLock.Lock()
 	defer c.allocLock.Unlock()
@@ -1929,7 +1941,7 @@ func (c *Client) addAlloc(alloc *structs.Allocation, migrateToken string) error 
 	// Copy the config since the node can be swapped out as it is being updated.
 	// The long term fix is to pass in the config and node separately and then
 	// we don't have to do a copy.
-	ar := allocrunner.NewAllocRunner(c.logger, c.configCopy.Copy(), c.stateDB, c.updateAllocStatus, alloc, c.vaultClient, c.consulService, prevAlloc)
+	ar := allocrunner.NewAllocRunner(ctx, c.logger, c.configCopy.Copy(), c.stateDB, c.updateAllocStatus, alloc, c.vaultClient, c.consulService, prevAlloc)
 	c.configLock.RUnlock()
 
 	// Store the alloc runner.
