@@ -80,10 +80,14 @@ type AllocRunner struct {
 	// to call.
 	prevAlloc prevAllocWatcher
 
-	// ctx is cancelled with exitFn to cause the alloc to be destroyed
-	// (stopped and GC'd).
-	ctx    context.Context
-	exitFn context.CancelFunc
+	// ctx is the main Nomad context which is canceled when the Nomad agent
+	// should shutdown
+	ctx context.Context
+
+	// destroyCtx is cancelled with destroyFn to cause the alloc to be
+	// destroyed (stopped and GC'd).
+	destroyCtx context.Context
+	destroyFn  context.CancelFunc
 
 	// waitCh is closed when the Run method exits. At that point the alloc
 	// has stopped and been GC'd.
@@ -132,9 +136,9 @@ type allocRunnerMutableState struct {
 }
 
 // NewAllocRunner is used to create a new allocation context
-func NewAllocRunner(logger *log.Logger, config *config.Config, stateDB *bolt.DB, updater AllocStateUpdater,
-	alloc *structs.Allocation, vaultClient vaultclient.VaultClient, consulClient consulApi.ConsulServiceAPI,
-	prevAlloc prevAllocWatcher) *AllocRunner {
+func NewAllocRunner(ctx context.Context, logger *log.Logger, config *config.Config, stateDB *bolt.DB,
+	updater AllocStateUpdater, alloc *structs.Allocation, vaultClient vaultclient.VaultClient,
+	consulClient consulApi.ConsulServiceAPI, prevAlloc prevAllocWatcher) *AllocRunner {
 
 	ar := &AllocRunner{
 		config:         config,
@@ -154,10 +158,14 @@ func NewAllocRunner(logger *log.Logger, config *config.Config, stateDB *bolt.DB,
 		waitCh:         make(chan struct{}),
 		vaultClient:    vaultClient,
 		consulClient:   consulClient,
+		ctx:            ctx,
 	}
 
-	// TODO Should be passed a context
-	ar.ctx, ar.exitFn = context.WithCancel(context.TODO())
+	// Cleanup if any context is canceled
+	go func() {
+	}()
+
+	ar.destroyCtx, ar.destroyFn = context.WithCancel(ctx)
 
 	return ar
 }
@@ -339,7 +347,8 @@ func (r *AllocRunner) saveAllocRunnerState() error {
 	r.allocStateLock.Lock()
 	defer r.allocStateLock.Unlock()
 
-	if r.ctx.Err() == context.Canceled {
+	if r.destroyCtx.Err() != nil {
+		// AllocRunner is being destroyed, no point in saving
 		return nil
 	}
 
@@ -588,7 +597,8 @@ func (r *AllocRunner) dirtySyncState() {
 				r.logger.Printf("[WARN] client: error persisting alloc %q state: %v",
 					r.allocID, err)
 			}
-		case <-r.ctx.Done():
+		case <-r.destroyCtx.Done():
+			// Don't sync status if being destroyed
 			return
 		}
 	}
@@ -799,6 +809,7 @@ func (r *AllocRunner) Run() {
 	// Wait for a previous alloc - if any - to terminate
 	if err := r.prevAlloc.Wait(r.ctx); err != nil {
 		if err == context.Canceled {
+			// Nomad exiting, will wait here again when restarted
 			return
 		}
 		r.setStatus(structs.AllocClientStatusFailed, fmt.Sprintf("error while waiting for previous alloc to terminate: %v", err))
@@ -808,6 +819,7 @@ func (r *AllocRunner) Run() {
 	// Wait for data to be migrated from a previous alloc if applicable
 	if err := r.prevAlloc.Migrate(r.ctx, r.allocDir); err != nil {
 		if err == context.Canceled {
+			// Nomad exiting, will migrate again when restarted
 			return
 		}
 
@@ -915,6 +927,10 @@ OUTER:
 			}
 
 		case <-r.ctx.Done():
+			// Exit without destroying
+			return
+
+		case <-r.destroyCtx.Done():
 			taskDestroyEvent = structs.NewTaskEvent(structs.TaskKilled)
 			break OUTER
 		}
@@ -926,7 +942,7 @@ OUTER:
 	// Block until we should destroy the state of the alloc
 	r.handleDestroy()
 
-	// Free up the context. It has likely exited already
+	// Free up the context
 	watcherCancel()
 
 	r.logger.Printf("[DEBUG] client: terminating runner for alloc '%s'", r.allocID)
@@ -1013,7 +1029,7 @@ func (r *AllocRunner) handleDestroy() {
 
 	for {
 		select {
-		case <-r.ctx.Done():
+		case <-r.destroyCtx.Done():
 			if err := r.DestroyContext(); err != nil {
 				r.logger.Printf("[ERR] client: failed to destroy context for alloc '%s': %v",
 					r.allocID, err)
@@ -1137,7 +1153,7 @@ func (r *AllocRunner) Destroy() {
 	r.allocStateLock.Lock()
 	defer r.allocStateLock.Unlock()
 
-	r.exitFn()
+	r.destroyFn()
 	r.allocBroadcast.Close()
 }
 

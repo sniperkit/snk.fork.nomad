@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -16,10 +17,9 @@ import (
 // FingerprintManager runs a client fingerprinters on a continuous basis, and
 // updates the client when the node has changed
 type FingerprintManager struct {
-	getConfig  func() *config.Config
-	node       *structs.Node
-	nodeLock   sync.Mutex
-	shutdownCh chan struct{}
+	getConfig func() *config.Config
+	node      *structs.Node
+	nodeLock  sync.Mutex
 
 	// updateNodeAttributes is a callback to the client to update the state of its
 	// associated node
@@ -35,7 +35,6 @@ type FingerprintManager struct {
 // of FingerprintManager
 func NewFingerprintManager(getConfig func() *config.Config,
 	node *structs.Node,
-	shutdownCh chan struct{},
 	updateNodeAttributes func(*cstructs.FingerprintResponse) *structs.Node,
 	updateNodeFromDriver func(string, *structs.DriverInfo, *structs.DriverInfo) *structs.Node,
 	logger *log.Logger) *FingerprintManager {
@@ -44,7 +43,6 @@ func NewFingerprintManager(getConfig func() *config.Config,
 		updateNodeAttributes: updateNodeAttributes,
 		updateNodeFromDriver: updateNodeFromDriver,
 		node:                 node,
-		shutdownCh:           shutdownCh,
 		logger:               logger,
 	}
 }
@@ -67,7 +65,7 @@ func (fm *FingerprintManager) getNode() *structs.Node {
 // identifying whitelisted and blacklisted fingerprints/drivers. Then, for
 // those which require periotic checking, it starts a periodic process for
 // each.
-func (fp *FingerprintManager) Run() error {
+func (fp *FingerprintManager) Run(ctx context.Context) error {
 	// First, set up all fingerprints
 	cfg := fp.getConfig()
 	whitelistFingerprints := cfg.ReadStringListToMap("fingerprint.whitelist")
@@ -93,7 +91,7 @@ func (fp *FingerprintManager) Run() error {
 		availableFingerprints = append(availableFingerprints, name)
 	}
 
-	if err := fp.setupFingerprinters(availableFingerprints); err != nil {
+	if err := fp.setupFingerprinters(ctx, availableFingerprints); err != nil {
 		return err
 	}
 
@@ -126,7 +124,7 @@ func (fp *FingerprintManager) Run() error {
 		availDrivers = append(availDrivers, name)
 	}
 
-	if err := fp.setupDrivers(availDrivers); err != nil {
+	if err := fp.setupDrivers(ctx, availDrivers); err != nil {
 		return err
 	}
 
@@ -138,7 +136,7 @@ func (fp *FingerprintManager) Run() error {
 
 // setupFingerprints is used to fingerprint the node to see if these attributes are
 // supported
-func (fm *FingerprintManager) setupFingerprinters(fingerprints []string) error {
+func (fm *FingerprintManager) setupFingerprinters(ctx context.Context, fingerprints []string) error {
 	var appliedFingerprints []string
 
 	for _, name := range fingerprints {
@@ -161,7 +159,7 @@ func (fm *FingerprintManager) setupFingerprinters(fingerprints []string) error {
 
 		p, period := f.Periodic()
 		if p {
-			go fm.runFingerprint(f, period, name)
+			go fm.runFingerprint(ctx, f, period, name)
 		}
 	}
 
@@ -171,7 +169,7 @@ func (fm *FingerprintManager) setupFingerprinters(fingerprints []string) error {
 
 // setupDrivers is used to fingerprint the node to see if these drivers are
 // supported
-func (fm *FingerprintManager) setupDrivers(drivers []string) error {
+func (fm *FingerprintManager) setupDrivers(ctx context.Context, drivers []string) error {
 	var availDrivers []string
 	driverCtx := driver.NewDriverContext("", "", "", "", fm.getConfig(), fm.getNode(), fm.logger, nil)
 	for _, name := range drivers {
@@ -195,7 +193,7 @@ func (fm *FingerprintManager) setupDrivers(drivers []string) error {
 
 		// Start a periodic watcher to detect changes to a drivers health and
 		// attributes.
-		go fm.watchDriver(d, name)
+		go fm.watchDriver(ctx, d, name)
 
 		// Log the fingerprinters which have been applied
 		if detected {
@@ -208,7 +206,7 @@ func (fm *FingerprintManager) setupDrivers(drivers []string) error {
 }
 
 // runFingerprint runs each fingerprinter individually on an ongoing basis
-func (fm *FingerprintManager) runFingerprint(f fingerprint.Fingerprint, period time.Duration, name string) {
+func (fm *FingerprintManager) runFingerprint(ctx context.Context, f fingerprint.Fingerprint, period time.Duration, name string) {
 	fm.logger.Printf("[DEBUG] client.fingerprint_manager: fingerprinting %s every %v", name, period)
 
 	timer := time.NewTimer(period)
@@ -225,7 +223,7 @@ func (fm *FingerprintManager) runFingerprint(f fingerprint.Fingerprint, period t
 				continue
 			}
 
-		case <-fm.shutdownCh:
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -255,7 +253,7 @@ func (fm *FingerprintManager) fingerprint(name string, f fingerprint.Fingerprint
 
 // watchDrivers facilitates the different periods between fingerprint and
 // health checking a driver
-func (fm *FingerprintManager) watchDriver(d driver.Driver, name string) {
+func (fm *FingerprintManager) watchDriver(ctx context.Context, d driver.Driver, name string) {
 	var fingerprintTicker, healthTicker <-chan time.Time
 
 	// Determine whether the fingerprinter is periodic and health checking
@@ -295,7 +293,7 @@ func (fm *FingerprintManager) watchDriver(d driver.Driver, name string) {
 	driverEverDetected := false
 	for {
 		select {
-		case <-fm.shutdownCh:
+		case <-ctx.Done():
 			return
 		case <-fingerprintTicker:
 			if _, err := fm.fingerprintDriver(name, d, isHealthCheckPeriodic); err != nil {

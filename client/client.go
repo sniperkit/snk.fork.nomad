@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -164,8 +165,15 @@ type Client struct {
 	// HostStatsCollector collects host resource usage stats
 	hostStatsCollector *stats.HostStatsCollector
 
-	shutdown     bool
-	shutdownCh   chan struct{}
+	// ctx is the Client's context that can be propated as needed and is
+	// canceled on shutdown
+	ctx context.Context
+
+	// cancel Client's context to signal a shutdown and should only be
+	// called from Shutdown
+	cancel func()
+
+	// shutdownLock serializes calls to Shutdown to ensure it is run at most once
 	shutdownLock sync.Mutex
 
 	// vaultClient is used to interact with Vault for token and secret renewals
@@ -210,6 +218,8 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulServic
 		}
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// Create the client
 	c := &Client{
 		config:               cfg,
@@ -222,14 +232,15 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulServic
 		logger:               logger,
 		allocs:               make(map[string]*allocrunner.AllocRunner),
 		allocUpdates:         make(chan *structs.Allocation, 64),
-		shutdownCh:           make(chan struct{}),
+		ctx:                  ctx,
+		cancel:               cancel,
 		triggerDiscoveryCh:   make(chan struct{}),
 		triggerNodeUpdate:    make(chan struct{}, 8),
 		triggerEmitNodeEvent: make(chan *structs.NodeEvent, 8),
 	}
 
 	// Initialize the server manager
-	c.servers = servers.New(c.logger, c.shutdownCh, c)
+	c.servers = servers.New(ctx, c.logger, c)
 
 	// Initialize the client
 	if err := c.init(); err != nil {
@@ -272,11 +283,10 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulServic
 	c.configLock.Unlock()
 
 	fingerprintManager := NewFingerprintManager(c.GetConfig, c.configCopy.Node,
-		c.shutdownCh, c.updateNodeFromFingerprint, c.updateNodeFromDriver,
-		c.logger)
+		c.updateNodeFromFingerprint, c.updateNodeFromDriver, c.logger)
 
 	// Fingerprint the node and scan for drivers
-	if err := fingerprintManager.Run(); err != nil {
+	if err := fingerprintManager.Run(ctx); err != nil {
 		return nil, fmt.Errorf("fingerprinting failed: %v", err)
 	}
 
@@ -495,13 +505,15 @@ func (c *Client) RPCMinorVersion() int {
 
 // Shutdown is used to tear down the client
 func (c *Client) Shutdown() error {
-	c.logger.Printf("[INFO] client: shutting down")
 	c.shutdownLock.Lock()
 	defer c.shutdownLock.Unlock()
 
-	if c.shutdown {
+	if c.ctx.Err() != nil {
+		// No need to return the context error; it's never meaningful
 		return nil
 	}
+
+	c.logger.Printf("[INFO] client: shutting down")
 
 	// Defer closing the database
 	defer func() {
@@ -520,20 +532,15 @@ func (c *Client) Shutdown() error {
 
 	// Destroy all the running allocations.
 	if c.config.DevMode {
-		var wg sync.WaitGroup
 		for _, ar := range c.getAllocRunners() {
-			wg.Add(1)
-			go func(ar *allocrunner.AllocRunner) {
-				ar.Destroy()
-				<-ar.WaitCh()
-				wg.Done()
-			}(ar)
+			ar.Destroy()
 		}
-		wg.Wait()
+		for _, ar := range c.getAllocRunners() {
+			<-ar.WaitCh()
+		}
 	}
 
-	c.shutdown = true
-	close(c.shutdownCh)
+	c.cancel()
 	c.connPool.Shutdown()
 	return c.saveState()
 }
@@ -753,7 +760,7 @@ func (c *Client) restoreState() error {
 		watcher := allocrunner.NoopPrevAlloc{}
 
 		c.configLock.RLock()
-		ar := allocrunner.NewAllocRunner(c.logger, c.configCopy.Copy(), c.stateDB, c.updateAllocStatus, alloc, c.vaultClient, c.consulService, watcher)
+		ar := allocrunner.NewAllocRunner(c.ctx, c.logger, c.configCopy.Copy(), c.stateDB, c.updateAllocStatus, alloc, c.vaultClient, c.consulService, watcher)
 		c.configLock.RUnlock()
 
 		c.allocLock.Lock()
@@ -1205,7 +1212,7 @@ func (c *Client) registerAndHeartbeat() {
 		select {
 		case <-c.rpcRetryWatcher():
 		case <-heartbeat:
-		case <-c.shutdownCh:
+		case <-c.ctx.Done():
 			return
 		}
 
@@ -1297,7 +1304,7 @@ func (c *Client) periodicSnapshot() {
 				c.logger.Printf("[ERR] client: failed to save state: %v", err)
 			}
 
-		case <-c.shutdownCh:
+		case <-c.ctx.Done():
 			return
 		}
 	}
@@ -1314,7 +1321,7 @@ func (c *Client) run() {
 		case update := <-allocUpdates:
 			c.runAllocs(update)
 
-		case <-c.shutdownCh:
+		case <-c.ctx.Done():
 			return
 		}
 	}
@@ -1373,7 +1380,7 @@ func (c *Client) watchNodeEvents() {
 				// Reset the events since we successfully sent them.
 				batchEvents = []*structs.NodeEvent{}
 			}
-		case <-c.shutdownCh:
+		case <-c.ctx.Done():
 			return
 		}
 	}
