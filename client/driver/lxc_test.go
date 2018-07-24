@@ -40,7 +40,7 @@ func TestLxcDriver_Fingerprint(t *testing.T) {
 		Attributes: map[string]string{},
 	}
 
-	// test with an empty config
+	// test with an empty Config
 	{
 		request := &cstructs.FingerprintRequest{Config: &config.Config{}, Node: node}
 		var response cstructs.FingerprintResponse
@@ -50,7 +50,7 @@ func TestLxcDriver_Fingerprint(t *testing.T) {
 		}
 	}
 
-	// test when lxc is enable din the config
+	// test when lxc is enable din the Config
 	{
 		conf := &config.Config{Options: map[string]string{lxcConfigOption: "1"}}
 		request := &cstructs.FingerprintRequest{Config: conf, Node: node}
@@ -269,11 +269,11 @@ func TestLxcDriver_Volumes_ConfigValidation(t *testing.T) {
 
 	for _, bc := range brokenVolumeConfigs {
 		if err := testVolumeConfig(t, bc); err == nil {
-			t.Fatalf("error expected in validate for config %+v", bc)
+			t.Fatalf("error expected in validate for Config %+v", bc)
 		}
 	}
 	if err := testVolumeConfig(t, []string{"abc:def"}); err != nil {
-		t.Fatalf("error in validate for syntactically valid config abc:def")
+		t.Fatalf("error in validate for syntactically valid Config abc:def")
 	}
 }
 
@@ -323,7 +323,7 @@ func TestLxcDriver_Start_NoVolumes(t *testing.T) {
 	defer ctx.AllocDir.Destroy()
 
 	// set lxcVolumesConfigOption to false to disallow absolute paths as the source for the bind mount
-	ctx.DriverCtx.config.Options = map[string]string{lxcVolumesConfigOption: "false"}
+	ctx.DriverCtx.Config.Options = map[string]string{lxcVolumesConfigOption: "false"}
 
 	d := NewLxcDriver(ctx.DriverCtx)
 
@@ -331,7 +331,7 @@ func TestLxcDriver_Start_NoVolumes(t *testing.T) {
 		t.Fatalf("prestart err: %v", err)
 	}
 
-	// expect the "absolute bind-mount volume in config.. " error
+	// expect the "absolute bind-mount volume in Config.. " error
 	_, err := d.Start(ctx.ExecCtx, task)
 	if err == nil {
 		t.Fatalf("expected error in start, got nil.")

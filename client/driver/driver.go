@@ -23,12 +23,12 @@ var (
 	// BuiltinDrivers contains the built in registered drivers
 	// which are available for allocation handling
 	BuiltinDrivers = map[string]Factory{
-		"docker":   NewDockerDriver,
-		"exec":     NewExecDriver,
-		"raw_exec": NewRawExecDriver,
-		"java":     NewJavaDriver,
-		"qemu":     NewQemuDriver,
-		"rkt":      NewRktDriver,
+		"docker": NewDockerDriver,
+		"exec":   NewExecDriver,
+		// "raw_exec": plugin.NewRawExecDriver, temporarily commenting this out to make raw exec a go-plugin
+		"java": NewJavaDriver,
+		"qemu": NewQemuDriver,
+		"rkt":  NewRktDriver,
 	}
 
 	// DriverStatsNotImplemented is the error to be returned if a driver doesn't
@@ -37,7 +37,7 @@ var (
 )
 
 // NewDriver is used to instantiate and return a new driver
-// given the name and a logger
+// given the name and a Logger
 func NewDriver(name string, ctx *DriverContext) (Driver, error) {
 	// Lookup the factory function
 	factory, ok := BuiltinDrivers[name]
@@ -263,9 +263,9 @@ type DriverContext struct {
 	taskGroupName string
 	taskName      string
 	allocID       string
-	config        *config.Config
-	logger        *log.Logger
-	node          *structs.Node
+	Config        *config.Config
+	Logger        *log.Logger
+	Node          *structs.Node
 
 	emitEvent LogEventFn
 }
@@ -288,9 +288,9 @@ func NewDriverContext(jobName, taskGroupName, taskName, allocID string,
 		taskGroupName: taskGroupName,
 		taskName:      taskName,
 		allocID:       allocID,
-		config:        config,
-		node:          node,
-		logger:        logger,
+		Config:        config,
+		Node:          node,
+		Logger:        logger,
 		emitEvent:     eventEmitter,
 	}
 }

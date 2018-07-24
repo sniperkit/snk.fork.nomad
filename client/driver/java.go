@@ -115,7 +115,7 @@ func (d *JavaDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstruct
 	// Only enable if we are root and cgroups are mounted when running on linux systems.
 	if runtime.GOOS == "linux" && (syscall.Geteuid() != 0 || !cgroupsMounted(req.Node)) {
 		if d.fingerprintSuccess == nil || *d.fingerprintSuccess {
-			d.logger.Printf("[INFO] driver.java: root privileges and mounted cgroups required on linux, disabling")
+			d.Logger.Printf("[INFO] driver.java: root privileges and mounted cgroups required on linux, disabling")
 		}
 		d.fingerprintSuccess = helper.BoolToPtr(false)
 		resp.RemoveAttribute(javaDriverAttr)
@@ -150,7 +150,7 @@ func (d *JavaDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstruct
 
 	if infoString == "" {
 		if d.fingerprintSuccess == nil || *d.fingerprintSuccess {
-			d.logger.Println("[WARN] driver.java: error parsing Java version information, aborting")
+			d.Logger.Println("[WARN] driver.java: error parsing Java version information, aborting")
 		}
 		d.fingerprintSuccess = helper.BoolToPtr(false)
 		resp.RemoveAttribute(javaDriverAttr)
@@ -213,7 +213,7 @@ func (d *JavaDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 
 	// Look for jvm options
 	if len(driverConfig.JvmOpts) != 0 {
-		d.logger.Printf("[DEBUG] driver.java: found JVM options: %s", driverConfig.JvmOpts)
+		d.Logger.Printf("[DEBUG] driver.java: found JVM options: %s", driverConfig.JvmOpts)
 		args = append(args, driverConfig.JvmOpts...)
 	}
 
@@ -240,10 +240,10 @@ func (d *JavaDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 	pluginLogFile := filepath.Join(ctx.TaskDir.Dir, "executor.out")
 	executorConfig := &dstructs.ExecutorConfig{
 		LogFile:  pluginLogFile,
-		LogLevel: d.config.LogLevel,
+		LogLevel: d.Config.LogLevel,
 	}
 
-	execIntf, pluginClient, err := createExecutor(d.config.LogOutput, d.config, executorConfig)
+	execIntf, pluginClient, err := createExecutor(d.Config.LogOutput, d.Config, executorConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -284,10 +284,10 @@ func (d *JavaDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		pluginClient.Kill()
 		return nil, err
 	}
-	d.logger.Printf("[DEBUG] driver.java: started process with pid: %v", ps.Pid)
+	d.Logger.Printf("[DEBUG] driver.java: started process with pid: %v", ps.Pid)
 
 	// Return a driver handle
-	maxKill := d.DriverContext.config.MaxKillTimeout
+	maxKill := d.DriverContext.Config.MaxKillTimeout
 	h := &javaHandle{
 		pluginClient:    pluginClient,
 		executor:        execIntf,
@@ -296,8 +296,8 @@ func (d *JavaDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		taskDir:         ctx.TaskDir.Dir,
 		killTimeout:     GetKillTimeout(task.KillTimeout, maxKill),
 		maxKillTimeout:  maxKill,
-		version:         d.config.Version.VersionNumber(),
-		logger:          d.logger,
+		version:         d.Config.Version.VersionNumber(),
+		logger:          d.Logger,
 		doneCh:          make(chan struct{}),
 		waitCh:          make(chan *dstructs.WaitResult, 1),
 	}
@@ -326,11 +326,11 @@ func (d *JavaDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, erro
 	pluginConfig := &plugin.ClientConfig{
 		Reattach: id.PluginConfig.PluginConfig(),
 	}
-	exec, pluginClient, err := createExecutorWithConfig(pluginConfig, d.config.LogOutput)
+	exec, pluginClient, err := createExecutorWithConfig(pluginConfig, d.Config.LogOutput)
 	if err != nil {
 		merrs := new(multierror.Error)
 		merrs.Errors = append(merrs.Errors, err)
-		d.logger.Println("[ERR] driver.java: error connecting to plugin so destroying plugin pid and user pid")
+		d.Logger.Println("[ERR] driver.java: error connecting to plugin so destroying plugin pid and user pid")
 		if e := destroyPlugin(id.PluginConfig.Pid, id.UserPid); e != nil {
 			merrs.Errors = append(merrs.Errors, fmt.Errorf("error destroying plugin and userpid: %v", e))
 		}
@@ -345,7 +345,7 @@ func (d *JavaDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, erro
 	}
 
 	ver, _ := exec.Version()
-	d.logger.Printf("[DEBUG] driver.java: version of executor: %v", ver.Version)
+	d.Logger.Printf("[DEBUG] driver.java: version of executor: %v", ver.Version)
 
 	// Return a driver handle
 	h := &javaHandle{
@@ -353,7 +353,7 @@ func (d *JavaDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, erro
 		executor:        exec,
 		userPid:         id.UserPid,
 		isolationConfig: id.IsolationConfig,
-		logger:          d.logger,
+		logger:          d.Logger,
 		version:         id.Version,
 		killTimeout:     id.KillTimeout,
 		maxKillTimeout:  id.MaxKillTimeout,

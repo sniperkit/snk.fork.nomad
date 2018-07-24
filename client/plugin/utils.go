@@ -1,4 +1,4 @@
-package driver
+package plugin
 
 import (
 	"encoding/json"
@@ -37,7 +37,7 @@ func createExecutor(w io.Writer, clientConfig *config.Config,
 
 	c, err := json.Marshal(executorConfig)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create executor Config: %v", err)
+		return nil, nil, fmt.Errorf("unable to create executor config: %v", err)
 	}
 	bin, err := discover.NomadExecutable()
 	if err != nil {

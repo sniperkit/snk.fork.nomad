@@ -245,7 +245,7 @@ func (d *LxcDriver) startWithCleanup(ctx *ExecContext, task *structs.Task) (*Sta
 	case "", "quiet":
 		verbosity = lxc.Quiet
 	default:
-		return nil, fmt.Errorf("lxc driver config 'verbosity' can only be either quiet or verbose"), noCleanup
+		return nil, fmt.Errorf("lxc driver Config 'verbosity' can only be either quiet or verbose"), noCleanup
 	}
 	c.SetVerbosity(verbosity)
 
@@ -262,7 +262,7 @@ func (d *LxcDriver) startWithCleanup(ctx *ExecContext, task *structs.Task) (*Sta
 	case "", "error":
 		logLevel = lxc.ERROR
 	default:
-		return nil, fmt.Errorf("lxc driver config 'log_level' can only be trace, debug, info, warn or error"), noCleanup
+		return nil, fmt.Errorf("lxc driver Config 'log_level' can only be trace, debug, info, warn or error"), noCleanup
 	}
 	c.SetLogLevel(logLevel)
 
@@ -303,7 +303,7 @@ func (d *LxcDriver) startWithCleanup(ctx *ExecContext, task *structs.Task) (*Sta
 
 		if filepath.IsAbs(paths[0]) {
 			if !volumesEnabled {
-				return nil, fmt.Errorf("absolute bind-mount volume in config but '%v' is false", lxcVolumesConfigOption), c.Destroy
+				return nil, fmt.Errorf("absolute bind-mount volume in Config but '%v' is false", lxcVolumesConfigOption), c.Destroy
 			}
 		} else {
 			// Relative source paths are treated as relative to alloc dir

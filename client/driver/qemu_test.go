@@ -180,7 +180,7 @@ func TestQemuDriver_GracefulShutdown(t *testing.T) {
 	}
 
 	ctx := testDriverContexts(t, task)
-	ctx.DriverCtx.config.MaxKillTimeout = killTimeout
+	ctx.DriverCtx.Config.MaxKillTimeout = killTimeout
 	defer ctx.AllocDir.Destroy()
 	d := NewQemuDriver(ctx.DriverCtx)
 
@@ -253,15 +253,15 @@ func TestQemuDriver_GracefulShutdown(t *testing.T) {
 
 	// userPid supplied in sendQemuShutdown calls is bogus (it's used only
 	// for log output)
-	if err := sendQemuShutdown(ctx.DriverCtx.logger, "", 0); err == nil {
+	if err := sendQemuShutdown(ctx.DriverCtx.Logger, "", 0); err == nil {
 		t.Fatalf("sendQemuShutdown should return an error if monitorPath parameter is empty")
 	}
 
-	if err := sendQemuShutdown(ctx.DriverCtx.logger, "/path/that/does/not/exist", 0); err == nil {
+	if err := sendQemuShutdown(ctx.DriverCtx.Logger, "/path/that/does/not/exist", 0); err == nil {
 		t.Fatalf("sendQemuShutdown should return an error if file does not exist at monitorPath")
 	}
 
-	if err := sendQemuShutdown(ctx.DriverCtx.logger, monitorPath, 0); err != nil {
+	if err := sendQemuShutdown(ctx.DriverCtx.Logger, monitorPath, 0); err != nil {
 		t.Fatalf("unexpected error from sendQemuShutdown: %s", err)
 	}
 

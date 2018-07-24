@@ -158,7 +158,7 @@ type DockerDriverAuth struct {
 
 type DockerLoggingOpts struct {
 	Type      string              `mapstructure:"type"`
-	ConfigRaw []map[string]string `mapstructure:"config"`
+	ConfigRaw []map[string]string `mapstructure:"Config"`
 	Config    map[string]string   `mapstructure:"-"`
 }
 
@@ -187,7 +187,7 @@ type DockerVolumeDriverConfig struct {
 	Options []map[string]string `mapstructure:"options"`
 }
 
-// DockerDriverConfig defines the user specified config block in a jobspec
+// DockerDriverConfig defines the user specified Config block in a jobspec
 type DockerDriverConfig struct {
 	ImageName            string              `mapstructure:"image"`                  // Container's Image Name
 	LoadImage            string              `mapstructure:"load"`                   // LoadImage is a path to an image archive file
@@ -273,7 +273,7 @@ func sliceMergeUlimit(ulimitsRaw map[string]string) ([]docker.ULimit, error) {
 	return ulimits, nil
 }
 
-// Validate validates a docker driver config
+// Validate validates a docker driver Config
 func (c *DockerDriverConfig) Validate() error {
 	if c.ImageName == "" {
 		return fmt.Errorf("Docker Driver needs an image name")
@@ -308,8 +308,8 @@ func (c *DockerDriverConfig) Validate() error {
 	return nil
 }
 
-// NewDockerDriverConfig returns a docker driver config by parsing the HCL
-// config
+// NewDockerDriverConfig returns a docker driver Config by parsing the HCL
+// Config
 func NewDockerDriverConfig(task *structs.Task, env *env.TaskEnv) (*DockerDriverConfig, error) {
 	var dconf DockerDriverConfig
 
@@ -405,7 +405,7 @@ func NewDockerDriverConfig(task *structs.Task, env *env.TaskEnv) (*DockerDriverC
 			}
 
 			if len(vo.DriverConfig) > 1 {
-				return nil, fmt.Errorf("volume driver config may only be specified once")
+				return nil, fmt.Errorf("volume driver Config may only be specified once")
 			}
 			if len(vo.DriverConfig) == 1 {
 				vo.DriverConfig[0].Name = env.ReplaceEnv(vo.DriverConfig[0].Name)
@@ -503,7 +503,7 @@ func (d *DockerDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstru
 	client, _, err := d.dockerClients()
 	if err != nil {
 		if d.fingerprintSuccess == nil || *d.fingerprintSuccess {
-			d.logger.Printf("[INFO] driver.docker: failed to initialize client: %s", err)
+			d.Logger.Printf("[INFO] driver.docker: failed to initialize client: %s", err)
 		}
 		d.fingerprintSuccess = helper.BoolToPtr(false)
 		return nil
@@ -515,7 +515,7 @@ func (d *DockerDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstru
 	env, err := client.Version()
 	if err != nil {
 		if d.fingerprintSuccess == nil || *d.fingerprintSuccess {
-			d.logger.Printf("[DEBUG] driver.docker: could not connect to docker daemon at %s: %s", client.Endpoint(), err)
+			d.Logger.Printf("[DEBUG] driver.docker: could not connect to docker daemon at %s: %s", client.Endpoint(), err)
 		}
 		d.fingerprintSuccess = helper.BoolToPtr(false)
 		resp.RemoveAttribute(dockerDriverAttr)
@@ -526,19 +526,19 @@ func (d *DockerDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstru
 	resp.AddAttribute("driver.docker.version", env.Get("Version"))
 	resp.Detected = true
 
-	privileged := d.config.ReadBoolDefault(dockerPrivilegedConfigOption, false)
+	privileged := d.Config.ReadBoolDefault(dockerPrivilegedConfigOption, false)
 	if privileged {
 		resp.AddAttribute(dockerPrivilegedConfigOption, "1")
 	}
 
 	// Advertise if this node supports Docker volumes
-	if d.config.ReadBoolDefault(dockerVolumesConfigOption, dockerVolumesConfigDefault) {
+	if d.Config.ReadBoolDefault(dockerVolumesConfigOption, dockerVolumesConfigDefault) {
 		resp.AddAttribute("driver."+dockerVolumesConfigOption, "1")
 	}
 
 	// Detect bridge IP address - #2785
 	if nets, err := client.ListNetworks(); err != nil {
-		d.logger.Printf("[WARN] driver.docker: error discovering bridge IP: %v", err)
+		d.Logger.Printf("[WARN] driver.docker: error discovering bridge IP: %v", err)
 	} else {
 		for _, n := range nets {
 			if n.Name != "bridge" {
@@ -546,7 +546,7 @@ func (d *DockerDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstru
 			}
 
 			if len(n.IPAM.Config) == 0 {
-				d.logger.Printf("[WARN] driver.docker: no IPAM config for bridge network")
+				d.Logger.Printf("[WARN] driver.docker: no IPAM Config for bridge network")
 				break
 			}
 
@@ -555,7 +555,7 @@ func (d *DockerDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstru
 			} else if d.fingerprintSuccess == nil {
 				// Docker 17.09.0-ce dropped the Gateway IP from the bridge network
 				// See https://github.com/moby/moby/issues/32648
-				d.logger.Printf("[DEBUG] driver.docker: bridge_ip could not be discovered")
+				d.Logger.Printf("[DEBUG] driver.docker: bridge_ip could not be discovered")
 			}
 			break
 		}
@@ -575,7 +575,7 @@ func (d *DockerDriver) HealthCheck(req *cstructs.HealthCheckRequest, resp *cstru
 
 	healthCheckClient, err := d.dockerHealthCheckClient()
 	if err != nil {
-		d.logger.Printf("[WARN] driver.docker: failed to retrieve Docker client in the process of a docker health check: %v", err)
+		d.Logger.Printf("[WARN] driver.docker: failed to retrieve Docker client in the process of a docker health check: %v", err)
 		dinfo.HealthDescription = fmt.Sprintf("Failed retrieving Docker client: %v", err)
 		resp.AddDriverInfo("docker", dinfo)
 		return nil
@@ -583,13 +583,13 @@ func (d *DockerDriver) HealthCheck(req *cstructs.HealthCheckRequest, resp *cstru
 
 	_, err = healthCheckClient.ListContainers(docker.ListContainersOptions{All: false})
 	if err != nil {
-		d.logger.Printf("[WARN] driver.docker: failed to list Docker containers in the process of a Docker health check: %v", err)
+		d.Logger.Printf("[WARN] driver.docker: failed to list Docker containers in the process of a Docker health check: %v", err)
 		dinfo.HealthDescription = fmt.Sprintf("Failed to list Docker containers: %v", err)
 		resp.AddDriverInfo("docker", dinfo)
 		return nil
 	}
 
-	d.logger.Printf("[TRACE] driver.docker: docker driver is available and is responsive to `docker ps`")
+	d.Logger.Printf("[TRACE] driver.docker: docker driver is available and is responsive to `docker ps`")
 	dinfo.Healthy = true
 	dinfo.HealthDescription = "Driver is available and responsive"
 	resp.AddDriverInfo("docker", dinfo)
@@ -770,9 +770,9 @@ func (d *DockerDriver) FSIsolation() cstructs.FSIsolation {
 func (d *DockerDriver) getDockerCoordinator(client *docker.Client) (*dockerCoordinator, string) {
 	config := &dockerCoordinatorConfig{
 		client:      client,
-		cleanup:     d.config.ReadBoolDefault(dockerCleanupImageConfigOption, dockerCleanupImageConfigDefault),
-		logger:      d.logger,
-		removeDelay: d.config.ReadDurationDefault(dockerImageRemoveDelayConfigOption, dockerImageRemoveDelayConfigDefault),
+		cleanup:     d.Config.ReadBoolDefault(dockerCleanupImageConfigOption, dockerCleanupImageConfigDefault),
+		logger:      d.Logger,
+		removeDelay: d.Config.ReadDurationDefault(dockerImageRemoveDelayConfigOption, dockerImageRemoveDelayConfigDefault),
 	}
 
 	return GetDockerCoordinator(config), fmt.Sprintf("%s-%s", d.DriverContext.allocID, d.DriverContext.taskName)
@@ -816,10 +816,10 @@ func (d *DockerDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespon
 	pluginLogFile := filepath.Join(ctx.TaskDir.Dir, "executor.out")
 	executorConfig := &dstructs.ExecutorConfig{
 		LogFile:  pluginLogFile,
-		LogLevel: d.config.LogLevel,
+		LogLevel: d.Config.LogLevel,
 	}
 
-	exec, pluginClient, err := createExecutor(d.config.LogOutput, d.config, executorConfig)
+	exec, pluginClient, err := createExecutor(d.Config.LogOutput, d.Config, executorConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -829,8 +829,8 @@ func (d *DockerDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespon
 		Driver:         "docker",
 		LogDir:         ctx.TaskDir.LogDir,
 		TaskDir:        ctx.TaskDir.Dir,
-		PortLowerBound: d.config.ClientMinPort,
-		PortUpperBound: d.config.ClientMaxPort,
+		PortLowerBound: d.Config.ClientMinPort,
+		PortUpperBound: d.Config.ClientMaxPort,
 	}
 	if err := exec.SetContext(executorCtx); err != nil {
 		pluginClient.Kill()
@@ -842,7 +842,7 @@ func (d *DockerDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespon
 	syslogAddr := ""
 	if len(d.driverConfig.Logging) == 0 {
 		if runtime.GOOS == "darwin" {
-			d.logger.Printf("[DEBUG] driver.docker: disabling syslog driver as Docker for Mac workaround")
+			d.Logger.Printf("[DEBUG] driver.docker: disabling syslog driver as Docker for Mac workaround")
 		} else {
 			ss, err := exec.LaunchSyslogServer()
 			if err != nil {
@@ -855,7 +855,7 @@ func (d *DockerDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespon
 
 	config, err := d.createContainerConfig(ctx, task, d.driverConfig, syslogAddr)
 	if err != nil {
-		d.logger.Printf("[ERR] driver.docker: failed to create container configuration for image %q (%q): %v", d.driverConfig.ImageName, d.imageID, err)
+		d.Logger.Printf("[ERR] driver.docker: failed to create container configuration for image %q (%q): %v", d.driverConfig.ImageName, d.imageID, err)
 		pluginClient.Kill()
 		return nil, fmt.Errorf("Failed to create container configuration for image %q (%q): %v", d.driverConfig.ImageName, d.imageID, err)
 	}
@@ -863,12 +863,12 @@ func (d *DockerDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespon
 	container, err := d.createContainer(client, config)
 	if err != nil {
 		wrapped := fmt.Sprintf("Failed to create container: %v", err)
-		d.logger.Printf("[ERR] driver.docker: %s", wrapped)
+		d.Logger.Printf("[ERR] driver.docker: %s", wrapped)
 		pluginClient.Kill()
 		return nil, structs.WrapRecoverable(wrapped, err)
 	}
 
-	d.logger.Printf("[INFO] driver.docker: created container %s", container.ID)
+	d.Logger.Printf("[INFO] driver.docker: created container %s", container.ID)
 
 	// We don't need to start the container if the container is already running
 	// since we don't create containers which are already present on the host
@@ -876,7 +876,7 @@ func (d *DockerDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespon
 	if !container.State.Running {
 		// Start the container
 		if err := d.startContainer(container); err != nil {
-			d.logger.Printf("[ERR] driver.docker: failed to start container %s: %s", container.ID, err)
+			d.Logger.Printf("[ERR] driver.docker: failed to start container %s: %s", container.ID, err)
 			pluginClient.Kill()
 			return nil, structs.NewRecoverableError(fmt.Errorf("Failed to start container %s: %s", container.ID, err), structs.IsRecoverable(err))
 		}
@@ -887,32 +887,32 @@ func (d *DockerDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespon
 		runningContainer, err := client.InspectContainer(container.ID)
 		if err != nil {
 			err = fmt.Errorf("failed to inspect started container %s: %s", container.ID, err)
-			d.logger.Printf("[ERR] driver.docker: %v", err)
+			d.Logger.Printf("[ERR] driver.docker: %v", err)
 			pluginClient.Kill()
 			return nil, structs.NewRecoverableError(err, true)
 		}
 		container = runningContainer
-		d.logger.Printf("[INFO] driver.docker: started container %s", container.ID)
+		d.Logger.Printf("[INFO] driver.docker: started container %s", container.ID)
 	} else {
-		d.logger.Printf("[DEBUG] driver.docker: re-attaching to container %s with status %q",
+		d.Logger.Printf("[DEBUG] driver.docker: re-attaching to container %s with status %q",
 			container.ID, container.State.String())
 	}
 
 	// Return a driver handle
-	maxKill := d.DriverContext.config.MaxKillTimeout
+	maxKill := d.DriverContext.Config.MaxKillTimeout
 	h := &DockerHandle{
 		client:         client,
 		waitClient:     waitClient,
 		executor:       exec,
 		pluginClient:   pluginClient,
-		logger:         d.logger,
+		logger:         d.Logger,
 		jobName:        d.DriverContext.jobName,
 		taskGroupName:  d.DriverContext.taskGroupName,
 		taskName:       d.DriverContext.taskName,
 		Image:          d.driverConfig.ImageName,
 		ImageID:        d.imageID,
 		containerID:    container.ID,
-		version:        d.config.Version.VersionNumber(),
+		version:        d.Config.Version.VersionNumber(),
 		killTimeout:    GetKillTimeout(task.KillTimeout, maxKill),
 		maxKillTimeout: maxKill,
 		doneCh:         make(chan bool),
@@ -944,7 +944,7 @@ func (d *DockerDriver) detectIP(c *docker.Container) (string, bool) {
 		// This should only happen if there's been a coding error (such
 		// as not calling InspectContainer after CreateContainer). Code
 		// defensively in case the Docker API changes subtly.
-		d.logger.Printf("[ERROR] driver.docker: no network settings for container %s", c.ID)
+		d.Logger.Printf("[ERROR] driver.docker: no network settings for container %s", c.ID)
 		return "", false
 	}
 
@@ -973,7 +973,7 @@ func (d *DockerDriver) detectIP(c *docker.Container) (string, bool) {
 	}
 
 	if n := len(c.NetworkSettings.Networks); n > 1 {
-		d.logger.Printf("[WARN] driver.docker: task %s multiple (%d) Docker networks for container %q but Nomad only supports 1: choosing %q", d.taskName, n, c.ID, ipName)
+		d.Logger.Printf("[WARN] driver.docker: task %s multiple (%d) Docker networks for container %q but Nomad only supports 1: choosing %q", d.taskName, n, c.ID, ipName)
 	}
 
 	return ip, auto
@@ -999,7 +999,7 @@ func (d *DockerDriver) Cleanup(_ *ExecContext, res *CreatedResources) error {
 				res.Remove(dockerImageResKey, value)
 			}
 		default:
-			d.logger.Printf("[ERR] driver.docker: unknown resource to cleanup: %q", key)
+			d.Logger.Printf("[ERR] driver.docker: unknown resource to cleanup: %q", key)
 		}
 	}
 	return structs.NewRecoverableError(merr.ErrorOrNil(), retry)
@@ -1009,7 +1009,7 @@ func (d *DockerDriver) Cleanup(_ *ExecContext, res *CreatedResources) error {
 // doesn't exist or is still in use. Requires the global client to already be
 // initialized.
 func (d *DockerDriver) cleanupImage(imageID string) error {
-	if !d.config.ReadBoolDefault(dockerCleanupImageConfigOption, dockerCleanupImageConfigDefault) {
+	if !d.Config.ReadBoolDefault(dockerCleanupImageConfigOption, dockerCleanupImageConfigDefault) {
 		// Config says not to cleanup
 		return nil
 	}
@@ -1042,7 +1042,7 @@ func (d *DockerDriver) dockerHealthCheckClient() (*docker.Client, error) {
 // dockerClients creates two *docker.Client, one for long running operations and
 // the other for shorter operations. In test / dev mode we can use ENV vars to
 // connect to the docker daemon. In production mode we will read docker.endpoint
-// from the config file.
+// from the Config file.
 func (d *DockerDriver) dockerClients() (*docker.Client, *docker.Client, error) {
 	createClientsLock.Lock()
 	defer createClientsLock.Unlock()
@@ -1079,31 +1079,31 @@ func (d *DockerDriver) newDockerClient(timeout time.Duration) (*docker.Client, e
 	var newClient *docker.Client
 
 	// Default to using whatever is configured in docker.endpoint. If this is
-	// not specified we'll fall back on NewClientFromEnv which reads config from
+	// not specified we'll fall back on NewClientFromEnv which reads Config from
 	// the DOCKER_* environment variables DOCKER_HOST, DOCKER_TLS_VERIFY, and
-	// DOCKER_CERT_PATH. This allows us to lock down the config in production
+	// DOCKER_CERT_PATH. This allows us to lock down the Config in production
 	// but also accept the standard ENV configs for dev and test.
-	dockerEndpoint := d.config.Read("docker.endpoint")
+	dockerEndpoint := d.Config.Read("docker.endpoint")
 	if dockerEndpoint != "" {
-		cert := d.config.Read("docker.tls.cert")
-		key := d.config.Read("docker.tls.key")
-		ca := d.config.Read("docker.tls.ca")
+		cert := d.Config.Read("docker.tls.cert")
+		key := d.Config.Read("docker.tls.key")
+		ca := d.Config.Read("docker.tls.ca")
 
 		if cert+key+ca != "" {
-			d.logger.Printf("[DEBUG] driver.docker: using TLS client connection to %s", dockerEndpoint)
+			d.Logger.Printf("[DEBUG] driver.docker: using TLS client connection to %s", dockerEndpoint)
 			newClient, err = docker.NewTLSClient(dockerEndpoint, cert, key, ca)
 			if err != nil {
 				merr.Errors = append(merr.Errors, err)
 			}
 		} else {
-			d.logger.Printf("[DEBUG] driver.docker: using standard client connection to %s", dockerEndpoint)
+			d.Logger.Printf("[DEBUG] driver.docker: using standard client connection to %s", dockerEndpoint)
 			newClient, err = docker.NewClient(dockerEndpoint)
 			if err != nil {
 				merr.Errors = append(merr.Errors, err)
 			}
 		}
 	} else {
-		d.logger.Println("[DEBUG] driver.docker: using client connection initialized from environment")
+		d.Logger.Println("[DEBUG] driver.docker: using client connection initialized from environment")
 		newClient, err = docker.NewClientFromEnv()
 		if err != nil {
 			merr.Errors = append(merr.Errors, err)
@@ -1124,7 +1124,7 @@ func (d *DockerDriver) containerBinds(driverConfig *DockerDriverConfig, ctx *Exe
 	secretDirBind := fmt.Sprintf("%s:%s", ctx.TaskDir.SecretsDir, ctx.TaskEnv.EnvMap[env.SecretsDir])
 	binds := []string{allocDirBind, taskLocalBind, secretDirBind}
 
-	volumesEnabled := d.config.ReadBoolDefault(dockerVolumesConfigOption, dockerVolumesConfigDefault)
+	volumesEnabled := d.Config.ReadBoolDefault(dockerVolumesConfigOption, dockerVolumesConfigDefault)
 
 	if !volumesEnabled && driverConfig.VolumeDriver != "" {
 		return nil, fmt.Errorf("%s is false; cannot use volume driver %q", dockerVolumesConfigOption, driverConfig.VolumeDriver)
@@ -1160,7 +1160,7 @@ func (d *DockerDriver) containerBinds(driverConfig *DockerDriverConfig, ctx *Exe
 		binds = append(binds, strings.Join(parts, ":"))
 	}
 
-	if selinuxLabel := d.config.Read(dockerSELinuxLabelConfigOption); selinuxLabel != "" {
+	if selinuxLabel := d.Config.Read(dockerSELinuxLabelConfigOption); selinuxLabel != "" {
 		// Apply SELinux Label to each volume
 		for i := range binds {
 			binds[i] = fmt.Sprintf("%s:%s", binds[i], selinuxLabel)
@@ -1177,7 +1177,7 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 	if task.Resources == nil {
 		// Guard against missing resources. We should never have been able to
 		// schedule a job without specifying this.
-		d.logger.Println("[ERR] driver.docker: task.Resources is empty")
+		d.Logger.Println("[ERR] driver.docker: task.Resources is empty")
 		return c, fmt.Errorf("task.Resources is empty")
 	}
 
@@ -1186,7 +1186,7 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 		return c, err
 	}
 
-	// create the config block that will later be consumed by go-dockerclient
+	// create the Config block that will later be consumed by go-dockerclient
 	config := &docker.Config{
 		Image:       d.imageID,
 		Entrypoint:  driverConfig.Entrypoint,
@@ -1206,9 +1206,9 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 
 	if len(driverConfig.Logging) == 0 {
 		if runtime.GOOS == "darwin" {
-			d.logger.Printf("[DEBUG] driver.docker: deferring logging to docker on Docker for Mac")
+			d.Logger.Printf("[DEBUG] driver.docker: deferring logging to docker on Docker for Mac")
 		} else {
-			d.logger.Printf("[DEBUG] driver.docker: Setting default logging options to syslog and %s", syslogAddr)
+			d.Logger.Printf("[DEBUG] driver.docker: Setting default logging options to syslog and %s", syslogAddr)
 			driverConfig.Logging = []DockerLoggingOpts{
 				{Type: "syslog", Config: map[string]string{"syslog-address": syslogAddr}},
 			}
@@ -1237,7 +1237,7 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 	// See https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/resource_management_guide/sec-cpu
 	if driverConfig.CPUHardLimit {
 		numCores := runtime.NumCPU()
-		percentTicks := float64(task.Resources.CPU) / float64(d.node.Resources.CPU)
+		percentTicks := float64(task.Resources.CPU) / float64(d.Node.Resources.CPU)
 		hostConfig.CPUQuota = int64(percentTicks*defaultCFSPeriodUS) * int64(numCores)
 	}
 
@@ -1250,29 +1250,29 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 	}
 
 	if len(driverConfig.Logging) != 0 {
-		d.logger.Printf("[DEBUG] driver.docker: Using config for logging: %+v", driverConfig.Logging[0])
+		d.Logger.Printf("[DEBUG] driver.docker: Using Config for logging: %+v", driverConfig.Logging[0])
 		hostConfig.LogConfig = docker.LogConfig{
 			Type:   driverConfig.Logging[0].Type,
 			Config: driverConfig.Logging[0].Config,
 		}
 	}
 
-	d.logger.Printf("[DEBUG] driver.docker: using %d bytes memory for %s", hostConfig.Memory, task.Name)
-	d.logger.Printf("[DEBUG] driver.docker: using %d cpu shares for %s", hostConfig.CPUShares, task.Name)
+	d.Logger.Printf("[DEBUG] driver.docker: using %d bytes memory for %s", hostConfig.Memory, task.Name)
+	d.Logger.Printf("[DEBUG] driver.docker: using %d cpu shares for %s", hostConfig.CPUShares, task.Name)
 	if driverConfig.CPUHardLimit {
-		d.logger.Printf("[DEBUG] driver.docker: using %dms cpu quota and %dms cpu period for %s", hostConfig.CPUQuota, defaultCFSPeriodUS, task.Name)
+		d.Logger.Printf("[DEBUG] driver.docker: using %dms cpu quota and %dms cpu period for %s", hostConfig.CPUQuota, defaultCFSPeriodUS, task.Name)
 	}
-	d.logger.Printf("[DEBUG] driver.docker: binding directories %#v for %s", hostConfig.Binds, task.Name)
+	d.Logger.Printf("[DEBUG] driver.docker: binding directories %#v for %s", hostConfig.Binds, task.Name)
 
 	//  set privileged mode
-	hostPrivileged := d.config.ReadBoolDefault(dockerPrivilegedConfigOption, false)
+	hostPrivileged := d.Config.ReadBoolDefault(dockerPrivilegedConfigOption, false)
 	if driverConfig.Privileged && !hostPrivileged {
 		return c, fmt.Errorf(`Docker privileged mode is disabled on this Nomad agent`)
 	}
 	hostConfig.Privileged = driverConfig.Privileged
 
 	// set capabilities
-	hostCapsWhitelistConfig := d.config.ReadDefault(
+	hostCapsWhitelistConfig := d.Config.ReadDefault(
 		dockerCapsWhitelistConfigOption, dockerCapsWhitelistConfigDefault)
 	hostCapsWhitelist := make(map[string]struct{})
 	for _, cap := range strings.Split(hostCapsWhitelistConfig, ",") {
@@ -1314,7 +1314,7 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 		if net.ParseIP(ip) != nil {
 			hostConfig.DNS = append(hostConfig.DNS, ip)
 		} else {
-			d.logger.Printf("[ERR] driver.docker: invalid ip address for container dns server: %s", ip)
+			d.Logger.Printf("[ERR] driver.docker: invalid ip address for container dns server: %s", ip)
 		}
 	}
 
@@ -1377,13 +1377,13 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 	hostConfig.NetworkMode = driverConfig.NetworkMode
 	if hostConfig.NetworkMode == "" {
 		// docker default
-		d.logger.Printf("[DEBUG] driver.docker: networking mode not specified; defaulting to %s", defaultNetworkMode)
+		d.Logger.Printf("[DEBUG] driver.docker: networking mode not specified; defaulting to %s", defaultNetworkMode)
 		hostConfig.NetworkMode = defaultNetworkMode
 	}
 
 	// Setup port mapping and exposed ports
 	if len(task.Resources.Networks) == 0 {
-		d.logger.Println("[DEBUG] driver.docker: No network interfaces are available")
+		d.Logger.Println("[DEBUG] driver.docker: No network interfaces are available")
 		if len(driverConfig.PortMap) > 0 {
 			return c, fmt.Errorf("Trying to map ports but no network interface is available")
 		}
@@ -1407,11 +1407,11 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 
 			publishedPorts[containerPort+"/tcp"] = getPortBinding(network.IP, hostPortStr)
 			publishedPorts[containerPort+"/udp"] = getPortBinding(network.IP, hostPortStr)
-			d.logger.Printf("[DEBUG] driver.docker: allocated port %s:%d -> %d (static)", network.IP, port.Value, port.Value)
+			d.Logger.Printf("[DEBUG] driver.docker: allocated port %s:%d -> %d (static)", network.IP, port.Value, port.Value)
 
 			exposedPorts[containerPort+"/tcp"] = struct{}{}
 			exposedPorts[containerPort+"/udp"] = struct{}{}
-			d.logger.Printf("[DEBUG] driver.docker: exposed port %d", port.Value)
+			d.Logger.Printf("[DEBUG] driver.docker: exposed port %d", port.Value)
 		}
 
 		for _, port := range network.DynamicPorts {
@@ -1428,11 +1428,11 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 
 			publishedPorts[containerPort+"/tcp"] = getPortBinding(network.IP, hostPortStr)
 			publishedPorts[containerPort+"/udp"] = getPortBinding(network.IP, hostPortStr)
-			d.logger.Printf("[DEBUG] driver.docker: allocated port %s:%d -> %d (mapped)", network.IP, port.Value, containerPortInt)
+			d.Logger.Printf("[DEBUG] driver.docker: allocated port %s:%d -> %d (mapped)", network.IP, port.Value, containerPortInt)
 
 			exposedPorts[containerPort+"/tcp"] = struct{}{}
 			exposedPorts[containerPort+"/udp"] = struct{}{}
-			d.logger.Printf("[DEBUG] driver.docker: exposed port %s", containerPort)
+			d.Logger.Printf("[DEBUG] driver.docker: exposed port %s", containerPort)
 		}
 
 		hostConfig.PortBindings = publishedPorts
@@ -1452,7 +1452,7 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 		if len(driverConfig.Args) != 0 {
 			cmd = append(cmd, parsedArgs...)
 		}
-		d.logger.Printf("[DEBUG] driver.docker: setting container startup command to: %s", strings.Join(cmd, " "))
+		d.Logger.Printf("[DEBUG] driver.docker: setting container startup command to: %s", strings.Join(cmd, " "))
 		config.Cmd = cmd
 	} else if len(driverConfig.Args) != 0 {
 		config.Cmd = parsedArgs
@@ -1460,13 +1460,13 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 
 	if len(driverConfig.Labels) > 0 {
 		config.Labels = driverConfig.Labels
-		d.logger.Printf("[DEBUG] driver.docker: applied labels on the container: %+v", config.Labels)
+		d.Logger.Printf("[DEBUG] driver.docker: applied labels on the container: %+v", config.Labels)
 	}
 
 	config.Env = ctx.TaskEnv.List()
 
 	containerName := fmt.Sprintf("%s-%s", task.Name, d.DriverContext.allocID)
-	d.logger.Printf("[DEBUG] driver.docker: setting container name to: %s", containerName)
+	d.Logger.Printf("[DEBUG] driver.docker: setting container name to: %s", containerName)
 
 	var networkingConfig *docker.NetworkingConfig
 	if len(driverConfig.NetworkAliases) > 0 || driverConfig.IPv4Address != "" || driverConfig.IPv6Address != "" {
@@ -1479,7 +1479,7 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 
 	if len(driverConfig.NetworkAliases) > 0 {
 		networkingConfig.EndpointsConfig[hostConfig.NetworkMode].Aliases = driverConfig.NetworkAliases
-		d.logger.Printf("[DEBUG] driver.docker: using network_mode %q with network aliases: %v",
+		d.Logger.Printf("[DEBUG] driver.docker: using network_mode %q with network aliases: %v",
 			hostConfig.NetworkMode, strings.Join(driverConfig.NetworkAliases, ", "))
 	}
 
@@ -1488,13 +1488,13 @@ func (d *DockerDriver) createContainerConfig(ctx *ExecContext, task *structs.Tas
 			IPv4Address: driverConfig.IPv4Address,
 			IPv6Address: driverConfig.IPv6Address,
 		}
-		d.logger.Printf("[DEBUG] driver.docker: using network_mode %q with ipv4: %q and ipv6: %q",
+		d.Logger.Printf("[DEBUG] driver.docker: using network_mode %q with ipv4: %q and ipv6: %q",
 			hostConfig.NetworkMode, driverConfig.IPv4Address, driverConfig.IPv6Address)
 	}
 
 	if driverConfig.MacAddress != "" {
 		config.MacAddress = driverConfig.MacAddress
-		d.logger.Printf("[DEBUG] driver.docker: using pinned mac address: %q", config.MacAddress)
+		d.Logger.Printf("[DEBUG] driver.docker: using pinned mac address: %q", config.MacAddress)
 	}
 
 	return docker.CreateContainerOptions{
@@ -1521,7 +1521,7 @@ func (d *DockerDriver) createImage(driverConfig *DockerDriverConfig, client *doc
 	// is "latest", or ForcePull is set, we have to check for a new version every time so we don't
 	// bother to check and cache the id here. We'll download first, then cache.
 	if driverConfig.ForcePull {
-		d.logger.Printf("[DEBUG] driver.docker: force pull image '%s' instead of inspecting local", dockerImageRef(repo, tag))
+		d.Logger.Printf("[DEBUG] driver.docker: force pull image '%s' instead of inspecting local", dockerImageRef(repo, tag))
 	} else if tag != "latest" {
 		if dockerImage, _ := client.InspectImage(image); dockerImage != nil {
 			// Image exists so just increment its reference count
@@ -1544,14 +1544,14 @@ func (d *DockerDriver) pullImage(driverConfig *DockerDriverConfig, client *docke
 	authOptions, err := d.resolveRegistryAuthentication(driverConfig, repo)
 	if err != nil {
 		if d.driverConfig.AuthSoftFail {
-			d.logger.Printf("[WARN] Failed to find docker auth for repo %q: %v", repo, err)
+			d.Logger.Printf("[WARN] Failed to find docker auth for repo %q: %v", repo, err)
 		} else {
 			return "", fmt.Errorf("Failed to find docker auth for repo %q: %v", repo, err)
 		}
 	}
 
 	if authIsEmpty(authOptions) {
-		d.logger.Printf("[DEBUG] driver.docker: did not find docker auth for repo %q", repo)
+		d.Logger.Printf("[DEBUG] driver.docker: did not find docker auth for repo %q", repo)
 	}
 
 	d.emitEvent("Downloading image %s", dockerImageRef(repo, tag))
@@ -1568,8 +1568,8 @@ type authBackend func(string) (*docker.AuthConfiguration, error)
 func (d *DockerDriver) resolveRegistryAuthentication(driverConfig *DockerDriverConfig, repo string) (*docker.AuthConfiguration, error) {
 	return firstValidAuth(repo, []authBackend{
 		authFromTaskConfig(driverConfig),
-		authFromDockerConfig(d.config.Read("docker.auth.config")),
-		authFromHelper(d.config.Read("docker.auth.helper")),
+		authFromDockerConfig(d.Config.Read("docker.auth.Config")),
+		authFromHelper(d.Config.Read("docker.auth.helper")),
 	})
 }
 
@@ -1578,7 +1578,7 @@ func (d *DockerDriver) loadImage(driverConfig *DockerDriverConfig, client *docke
 	taskDir *allocdir.TaskDir) (id string, err error) {
 
 	archive := filepath.Join(taskDir.LocalDir, driverConfig.LoadImage)
-	d.logger.Printf("[DEBUG] driver.docker: loading image from: %v", archive)
+	d.Logger.Printf("[DEBUG] driver.docker: loading image from: %v", archive)
 
 	f, err := os.Open(archive)
 	if err != nil {
@@ -1611,7 +1611,7 @@ CREATE:
 		return container, nil
 	}
 
-	d.logger.Printf("[DEBUG] driver.docker: failed to create container %q from image %q (ID: %q) (attempt %d): %v",
+	d.Logger.Printf("[DEBUG] driver.docker: failed to create container %q from image %q (ID: %q) (attempt %d): %v",
 		config.Name, d.driverConfig.ImageName, d.imageID, attempted+1, createErr)
 
 	// Volume management tools like Portworx may not have detached a volume
@@ -1628,7 +1628,7 @@ CREATE:
 			All: true,
 		})
 		if err != nil {
-			d.logger.Printf("[ERR] driver.docker: failed to query list of containers matching name:%s", config.Name)
+			d.Logger.Printf("[ERR] driver.docker: failed to query list of containers matching name:%s", config.Name)
 			return nil, recoverableErrTimeouts(fmt.Errorf("Failed to query list of containers: %s", err))
 		}
 
@@ -1636,13 +1636,13 @@ CREATE:
 		// Adding a / infront of the container name since Docker returns the
 		// container names with a / pre-pended to the Nomad generated container names
 		containerName := "/" + config.Name
-		d.logger.Printf("[DEBUG] driver.docker: searching for container name %q to purge", containerName)
+		d.Logger.Printf("[DEBUG] driver.docker: searching for container name %q to purge", containerName)
 		for _, shimContainer := range containers {
-			d.logger.Printf("[DEBUG] driver.docker: listed container %+v", shimContainer.Names)
+			d.Logger.Printf("[DEBUG] driver.docker: listed container %+v", shimContainer.Names)
 			found := false
 			for _, name := range shimContainer.Names {
 				if name == containerName {
-					d.logger.Printf("[DEBUG] driver.docker: Found container %v: %v", containerName, shimContainer.ID)
+					d.Logger.Printf("[DEBUG] driver.docker: Found container %v: %v", containerName, shimContainer.ID)
 					found = true
 					break
 				}
@@ -1673,10 +1673,10 @@ CREATE:
 				Force: true,
 			})
 			if err != nil {
-				d.logger.Printf("[ERR] driver.docker: failed to purge container %s", container.ID)
+				d.Logger.Printf("[ERR] driver.docker: failed to purge container %s", container.ID)
 				return nil, recoverableErrTimeouts(fmt.Errorf("Failed to purge container %s: %s", container.ID, err))
 			} else if err == nil {
-				d.logger.Printf("[INFO] driver.docker: purged container %s", container.ID)
+				d.Logger.Printf("[INFO] driver.docker: purged container %s", container.ID)
 			}
 		}
 
@@ -1705,7 +1705,7 @@ START:
 		return nil
 	}
 
-	d.logger.Printf("[DEBUG] driver.docker: failed to start container %q (attempt %d): %v", c.ID, attempted+1, startErr)
+	d.Logger.Printf("[DEBUG] driver.docker: failed to start container %q (attempt %d): %v", c.ID, attempted+1, startErr)
 
 	// If it is a 500 error it is likely we can retry and be successful
 	if strings.Contains(startErr.Error(), "API error (500)") {
@@ -1727,8 +1727,8 @@ func (d *DockerDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, er
 	if err := json.Unmarshal(pidBytes, pid); err != nil {
 		return nil, fmt.Errorf("Failed to parse handle '%s': %v", handleID, err)
 	}
-	d.logger.Printf("[INFO] driver.docker: re-attaching to docker process: %s", pid.ContainerID)
-	d.logger.Printf("[DEBUG] driver.docker: re-attached to handle: %s", handleID)
+	d.Logger.Printf("[INFO] driver.docker: re-attaching to docker process: %s", pid.ContainerID)
+	d.Logger.Printf("[DEBUG] driver.docker: re-attached to handle: %s", handleID)
 	pluginConfig := &plugin.ClientConfig{
 		Reattach: pid.PluginConfig.PluginConfig(),
 	}
@@ -1757,18 +1757,18 @@ func (d *DockerDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, er
 	if !found {
 		return nil, fmt.Errorf("Failed to find container %s", pid.ContainerID)
 	}
-	exec, pluginClient, err := createExecutorWithConfig(pluginConfig, d.config.LogOutput)
+	exec, pluginClient, err := createExecutorWithConfig(pluginConfig, d.Config.LogOutput)
 	if err != nil {
-		d.logger.Printf("[INFO] driver.docker: couldn't re-attach to the plugin process: %v", err)
-		d.logger.Printf("[DEBUG] driver.docker: stopping container %q", pid.ContainerID)
+		d.Logger.Printf("[INFO] driver.docker: couldn't re-attach to the plugin process: %v", err)
+		d.Logger.Printf("[DEBUG] driver.docker: stopping container %q", pid.ContainerID)
 		if e := client.StopContainer(pid.ContainerID, uint(pid.KillTimeout.Seconds())); e != nil {
-			d.logger.Printf("[DEBUG] driver.docker: couldn't stop container: %v", e)
+			d.Logger.Printf("[DEBUG] driver.docker: couldn't stop container: %v", e)
 		}
 		return nil, err
 	}
 
 	ver, _ := exec.Version()
-	d.logger.Printf("[DEBUG] driver.docker: version of executor: %v", ver.Version)
+	d.Logger.Printf("[DEBUG] driver.docker: version of executor: %v", ver.Version)
 
 	// Increment the reference count since we successfully attached to this
 	// container
@@ -1781,7 +1781,7 @@ func (d *DockerDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, er
 		waitClient:     waitClient,
 		executor:       exec,
 		pluginClient:   pluginClient,
-		logger:         d.logger,
+		logger:         d.Logger,
 		jobName:        d.DriverContext.jobName,
 		taskGroupName:  d.DriverContext.taskGroupName,
 		taskName:       d.DriverContext.taskName,
@@ -1829,7 +1829,7 @@ func (h *DockerHandle) Update(task *structs.Task) error {
 	// Store the updated kill timeout.
 	h.killTimeout = GetKillTimeout(task.KillTimeout, h.maxKillTimeout)
 	if err := h.executor.UpdateTask(task); err != nil {
-		h.logger.Printf("[DEBUG] driver.docker: failed to update log config: %v", err)
+		h.logger.Printf("[DEBUG] driver.docker: failed to update log Config: %v", err)
 	}
 
 	// Update is not possible
@@ -2050,24 +2050,24 @@ func calculatePercent(newSample, oldSample, newTotal, oldTotal uint64, cores int
 	return (float64(numerator) / float64(denom)) * float64(cores) * 100.0
 }
 
-// loadDockerConfig loads the docker config at the specified path, returning an
+// loadDockerConfig loads the docker Config at the specified path, returning an
 // error if it couldn't be read.
 func loadDockerConfig(file string) (*configfile.ConfigFile, error) {
 	f, err := os.Open(file)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to open auth config file: %v, error: %v", file, err)
+		return nil, fmt.Errorf("Failed to open auth Config file: %v, error: %v", file, err)
 	}
 	defer f.Close()
 
 	cfile := new(configfile.ConfigFile)
 	if err = cfile.LoadFromReader(f); err != nil {
-		return nil, fmt.Errorf("Failed to parse auth config file: %v", err)
+		return nil, fmt.Errorf("Failed to parse auth Config file: %v", err)
 	}
 	return cfile, nil
 }
 
 // parseRepositoryInfo takes a repo and returns the Docker RepositoryInfo. This
-// is useful for interacting with a Docker config object.
+// is useful for interacting with a Docker Config object.
 func parseRepositoryInfo(repo string) (*registry.RepositoryInfo, error) {
 	name, err := reference.ParseNamed(repo)
 	if err != nil {

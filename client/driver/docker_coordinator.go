@@ -71,7 +71,7 @@ type DockerImageClient interface {
 
 // dockerCoordinatorConfig is used to configure the Docker coordinator.
 type dockerCoordinatorConfig struct {
-	// logger is the logger the coordinator should use
+	// Logger is the Logger the coordinator should use
 	logger *log.Logger
 
 	// cleanup marks whether images should be deleting when the reference count

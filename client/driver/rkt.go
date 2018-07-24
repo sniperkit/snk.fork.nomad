@@ -336,7 +336,7 @@ func (d *RktDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstructs
 	// Only enable if we are root when running on non-windows systems.
 	if runtime.GOOS != "windows" && syscall.Geteuid() != 0 {
 		if d.fingerprintSuccess == nil || *d.fingerprintSuccess {
-			d.logger.Printf("[DEBUG] driver.rkt: must run as root user, disabling")
+			d.Logger.Printf("[DEBUG] driver.rkt: must run as root user, disabling")
 		}
 		d.fingerprintSuccess = helper.BoolToPtr(false)
 		resp.RemoveAttribute(rktDriverAttr)
@@ -364,7 +364,7 @@ func (d *RktDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstructs
 		// Do not allow ancient rkt versions
 		if d.fingerprintSuccess == nil {
 			// Only log on first failure
-			d.logger.Printf("[WARN] driver.rkt: unsupported rkt version %s; please upgrade to >= %s",
+			d.Logger.Printf("[WARN] driver.rkt: unsupported rkt version %s; please upgrade to >= %s",
 				currentVersion, minVersion)
 		}
 		d.fingerprintSuccess = helper.BoolToPtr(false)
@@ -374,7 +374,7 @@ func (d *RktDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstructs
 
 	// Output version information when the fingerprinter first sees rkt
 	if info, ok := req.Node.Drivers["rkt"]; ok && info != nil && !info.Detected {
-		d.logger.Printf("[DEBUG] driver.rkt: detect version: %s", strings.Replace(out, "\n", " ", -1))
+		d.Logger.Printf("[DEBUG] driver.rkt: detect version: %s", strings.Replace(out, "\n", " ", -1))
 	}
 	resp.AddAttribute(rktDriverAttr, "1")
 	resp.AddAttribute("driver.rkt.version", rktMatches[1])
@@ -382,7 +382,7 @@ func (d *RktDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstructs
 	resp.Detected = true
 
 	// Advertise if this node supports rkt volumes
-	if d.config.ReadBoolDefault(rktVolumesConfigOption, rktVolumesConfigDefault) {
+	if d.Config.ReadBoolDefault(rktVolumesConfigOption, rktVolumesConfigDefault) {
 		resp.AddAttribute("driver."+rktVolumesConfigOption, "1")
 	}
 	d.fingerprintSuccess = helper.BoolToPtr(true)
@@ -427,7 +427,7 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 			return nil, fmt.Errorf("Error running rkt trust: %s\n\nOutput: %s\n\nError: %s",
 				err, outBuf.String(), errBuf.String())
 		}
-		d.logger.Printf("[DEBUG] driver.rkt: added trust prefix: %q", trustPrefix)
+		d.Logger.Printf("[DEBUG] driver.rkt: added trust prefix: %q", trustPrefix)
 	} else {
 		// Disable signature verification if the trust command was not run.
 		insecure = true
@@ -477,7 +477,7 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 
 	// Mount arbitrary volumes if enabled
 	if len(driverConfig.Volumes) > 0 {
-		if enabled := d.config.ReadBoolDefault(rktVolumesConfigOption, rktVolumesConfigDefault); !enabled {
+		if enabled := d.Config.ReadBoolDefault(rktVolumesConfigOption, rktVolumesConfigDefault); !enabled {
 			return nil, fmt.Errorf("%s is false; cannot use rkt volumes: %+q", rktVolumesConfigOption, driverConfig.Volumes)
 		}
 		for i, rawvol := range driverConfig.Volumes {
@@ -488,10 +488,10 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 			// the third parameter is optional, mount is read-write by default
 			if len(parts) == 3 {
 				if parts[2] == "readOnly" {
-					d.logger.Printf("[DEBUG] Mounting %s:%s as readOnly", parts[0], parts[1])
+					d.Logger.Printf("[DEBUG] Mounting %s:%s as readOnly", parts[0], parts[1])
 					readOnly = "true"
 				} else {
-					d.logger.Printf("[WARN] Unknown volume parameter '%s' ignored for mount %s", parts[2], parts[0])
+					d.Logger.Printf("[WARN] Unknown volume parameter '%s' ignored for mount %s", parts[2], parts[0])
 				}
 			} else if len(parts) != 2 {
 				return nil, fmt.Errorf("invalid rkt volume: %q", rawvol)
@@ -529,7 +529,7 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 		for _, ip := range driverConfig.DNSServers {
 			if err := net.ParseIP(ip); err == nil {
 				msg := fmt.Errorf("invalid ip address for container dns server %q", ip)
-				d.logger.Printf("[DEBUG] driver.rkt: %v", msg)
+				d.Logger.Printf("[DEBUG] driver.rkt: %v", msg)
 				return nil, msg
 			} else {
 				runArgs = append(runArgs, fmt.Sprintf("--dns=%s", ip))
@@ -550,13 +550,13 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 
 	// Setup port mapping and exposed ports
 	if len(task.Resources.Networks) == 0 {
-		d.logger.Println("[DEBUG] driver.rkt: No network interfaces are available")
+		d.Logger.Println("[DEBUG] driver.rkt: No network interfaces are available")
 		if len(driverConfig.PortMap) > 0 {
 			return nil, fmt.Errorf("Trying to map ports but no network interface is available")
 		}
 	} else if network == "host" {
 		// Port mapping is skipped when host networking is used.
-		d.logger.Println("[DEBUG] driver.rkt: Ignoring port_map when using --net=host")
+		d.Logger.Println("[DEBUG] driver.rkt: Ignoring port_map when using --net=host")
 	} else {
 		// TODO add support for more than one network
 		network := task.Resources.Networks[0]
@@ -572,7 +572,7 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 
 			hostPortStr := strconv.Itoa(port.Value)
 
-			d.logger.Printf("[DEBUG] driver.rkt: exposed port %s", containerPort)
+			d.Logger.Printf("[DEBUG] driver.rkt: exposed port %s", containerPort)
 			// Add port option to rkt run arguments. rkt allows multiple port args
 			prepareArgs = append(prepareArgs, fmt.Sprintf("--port=%s:%s", containerPort, hostPortStr))
 		}
@@ -590,7 +590,7 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 
 			hostPortStr := strconv.Itoa(port.Value)
 
-			d.logger.Printf("[DEBUG] driver.rkt: exposed port %s", containerPort)
+			d.Logger.Printf("[DEBUG] driver.rkt: exposed port %s", containerPort)
 			// Add port option to rkt run arguments. rkt allows multiple port args
 			prepareArgs = append(prepareArgs, fmt.Sprintf("--port=%s:%s", containerPort, hostPortStr))
 		}
@@ -603,7 +603,7 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 	}
 
 	// There's no task-level parameter for groups so check the driver
-	// config for a custom group
+	// Config for a custom group
 	if driverConfig.Group != "" {
 		prepareArgs = append(prepareArgs, fmt.Sprintf("--group=%s", driverConfig.Group))
 	}
@@ -625,10 +625,10 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 	pluginLogFile := filepath.Join(ctx.TaskDir.Dir, fmt.Sprintf("%s-executor.out", task.Name))
 	executorConfig := &dstructs.ExecutorConfig{
 		LogFile:  pluginLogFile,
-		LogLevel: d.config.LogLevel,
+		LogLevel: d.Config.LogLevel,
 	}
 
-	execIntf, pluginClient, err := createExecutor(d.config.LogOutput, d.config, executorConfig)
+	execIntf, pluginClient, err := createExecutor(d.Config.LogOutput, d.Config, executorConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -642,19 +642,19 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 	cmd := exec.Command(rktCmd, prepareArgs...)
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
-	d.logger.Printf("[DEBUG] driver.rkt: preparing pod %q for task %q with: %v", img, d.taskName, prepareArgs)
+	d.Logger.Printf("[DEBUG] driver.rkt: preparing pod %q for task %q with: %v", img, d.taskName, prepareArgs)
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("Error preparing rkt pod: %s\n\nOutput: %s\n\nError: %s",
 			err, outBuf.String(), errBuf.String())
 	}
 	uuid := strings.TrimSpace(outBuf.String())
-	d.logger.Printf("[DEBUG] driver.rkt: pod %q for task %q prepared. (UUID: %s)", img, d.taskName, uuid)
+	d.Logger.Printf("[DEBUG] driver.rkt: pod %q for task %q prepared. (UUID: %s)", img, d.taskName, uuid)
 	runArgs = append(runArgs, uuid)
 
 	// The task's environment is set via --set-env flags above, but the rkt
 	// command itself needs an evironment with PATH set to find iptables.
 	eb := env.NewEmptyBuilder()
-	filter := strings.Split(d.config.ReadDefault("env.blacklist", config.DefaultEnvBlacklist), ",")
+	filter := strings.Split(d.Config.ReadDefault("env.blacklist", config.DefaultEnvBlacklist), ",")
 	rktEnv := eb.SetHostEnvvars(filter).Build()
 	executorCtx := &executor.ExecutorContext{
 		TaskEnv: rktEnv,
@@ -682,8 +682,8 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 		return nil, err
 	}
 
-	d.logger.Printf("[DEBUG] driver.rkt: started ACI %q (UUID: %s) for task %q with: %v", img, uuid, d.taskName, runArgs)
-	maxKill := d.DriverContext.config.MaxKillTimeout
+	d.Logger.Printf("[DEBUG] driver.rkt: started ACI %q (UUID: %s) for task %q with: %v", img, uuid, d.taskName, runArgs)
+	maxKill := d.DriverContext.Config.MaxKillTimeout
 	h := &rktHandle{
 		uuid:           uuid,
 		env:            rktEnv,
@@ -691,7 +691,7 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 		pluginClient:   pluginClient,
 		executor:       execIntf,
 		executorPid:    ps.Pid,
-		logger:         d.logger,
+		logger:         d.Logger,
 		killTimeout:    GetKillTimeout(task.KillTimeout, maxKill),
 		maxKillTimeout: maxKill,
 		doneCh:         make(chan struct{}),
@@ -705,10 +705,10 @@ func (d *RktDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse,
 	// https://coreos.com/rkt/docs/latest/networking/overview.html#no-loopback-only-networking
 	var driverNetwork *cstructs.DriverNetwork
 	if network != "host" && network != "none" {
-		d.logger.Printf("[DEBUG] driver.rkt: retrieving network information for pod %q (UUID: %s) for task %q", img, uuid, d.taskName)
-		driverNetwork, err = rktGetDriverNetwork(uuid, driverConfig.PortMap, d.logger)
+		d.Logger.Printf("[DEBUG] driver.rkt: retrieving network information for pod %q (UUID: %s) for task %q", img, uuid, d.taskName)
+		driverNetwork, err = rktGetDriverNetwork(uuid, driverConfig.PortMap, d.Logger)
 		if err != nil && !pluginClient.Exited() {
-			d.logger.Printf("[WARN] driver.rkt: network status retrieval for pod %q (UUID: %s) for task %q failed. Last error: %v", img, uuid, d.taskName, err)
+			d.Logger.Printf("[WARN] driver.rkt: network status retrieval for pod %q (UUID: %s) for task %q failed. Last error: %v", img, uuid, d.taskName, err)
 
 			// If a portmap was given, this turns into a fatal error
 			if len(driverConfig.PortMap) != 0 {
@@ -734,11 +734,11 @@ func (d *RktDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, error
 	pluginConfig := &plugin.ClientConfig{
 		Reattach: id.PluginConfig.PluginConfig(),
 	}
-	exec, pluginClient, err := createExecutorWithConfig(pluginConfig, d.config.LogOutput)
+	exec, pluginClient, err := createExecutorWithConfig(pluginConfig, d.Config.LogOutput)
 	if err != nil {
-		d.logger.Println("[ERR] driver.rkt: error connecting to plugin so destroying plugin pid and user pid")
+		d.Logger.Println("[ERR] driver.rkt: error connecting to plugin so destroying plugin pid and user pid")
 		if e := destroyPlugin(id.PluginConfig.Pid, id.ExecutorPid); e != nil {
-			d.logger.Printf("[ERR] driver.rkt: error destroying plugin and executor pid: %v", e)
+			d.Logger.Printf("[ERR] driver.rkt: error destroying plugin and executor pid: %v", e)
 		}
 		return nil, fmt.Errorf("error connecting to plugin: %v", err)
 	}
@@ -746,11 +746,11 @@ func (d *RktDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, error
 	// The task's environment is set via --set-env flags in Start, but the rkt
 	// command itself needs an evironment with PATH set to find iptables.
 	eb := env.NewEmptyBuilder()
-	filter := strings.Split(d.config.ReadDefault("env.blacklist", config.DefaultEnvBlacklist), ",")
+	filter := strings.Split(d.Config.ReadDefault("env.blacklist", config.DefaultEnvBlacklist), ",")
 	rktEnv := eb.SetHostEnvvars(filter).Build()
 
 	ver, _ := exec.Version()
-	d.logger.Printf("[DEBUG] driver.rkt: version of executor: %v", ver.Version)
+	d.Logger.Printf("[DEBUG] driver.rkt: version of executor: %v", ver.Version)
 	// Return a driver handle
 	h := &rktHandle{
 		uuid:           id.UUID,
@@ -759,7 +759,7 @@ func (d *RktDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, error
 		pluginClient:   pluginClient,
 		executorPid:    id.ExecutorPid,
 		executor:       exec,
-		logger:         d.logger,
+		logger:         d.Logger,
 		killTimeout:    id.KillTimeout,
 		maxKillTimeout: id.MaxKillTimeout,
 		doneCh:         make(chan struct{}),

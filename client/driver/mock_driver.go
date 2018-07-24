@@ -21,12 +21,12 @@ import (
 )
 
 const (
-	// ShutdownPeriodicAfter is a config key that can be used during tests to
+	// ShutdownPeriodicAfter is a Config key that can be used during tests to
 	// "stop" a previously-functioning driver, allowing for testing of periodic
 	// drivers and fingerprinters
 	ShutdownPeriodicAfter = "test.shutdown_periodic_after"
 
-	// ShutdownPeriodicDuration is a config option that can be used during tests
+	// ShutdownPeriodicDuration is a Config option that can be used during tests
 	// to "stop" a previously functioning driver after the specified duration
 	// (specified in seconds) for testing of periodic drivers and fingerprinters.
 	ShutdownPeriodicDuration = "test.shutdown_periodic_duration"
@@ -106,11 +106,11 @@ func NewMockDriver(ctx *DriverContext) Driver {
 	md := &MockDriver{DriverContext: *ctx}
 
 	// if the shutdown configuration options are set, start the timer here.
-	// This config option defaults to false
-	if ctx.config != nil && ctx.config.ReadBoolDefault(ShutdownPeriodicAfter, false) {
-		duration, err := ctx.config.ReadInt(ShutdownPeriodicDuration)
+	// This Config option defaults to false
+	if ctx.Config != nil && ctx.Config.ReadBoolDefault(ShutdownPeriodicAfter, false) {
+		duration, err := ctx.Config.ReadInt(ShutdownPeriodicDuration)
 		if err != nil {
-			errMsg := fmt.Sprintf("unable to read config option for shutdown_periodic_duration %v, got err %s", duration, err.Error())
+			errMsg := fmt.Sprintf("unable to read Config option for shutdown_periodic_duration %v, got err %s", duration, err.Error())
 			panic(errMsg)
 		}
 		md.shutdownFingerprintTime = time.Now().Add(time.Second * time.Duration(duration))
@@ -186,7 +186,7 @@ func (m *MockDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		stdoutString:    driverConfig.StdoutString,
 		stdoutRepeat:    driverConfig.StdoutRepeat,
 		stdoutRepeatDur: driverConfig.StdoutRepeatDur,
-		logger:          m.logger,
+		logger:          m.Logger,
 		doneCh:          make(chan struct{}),
 		waitCh:          make(chan *dstructs.WaitResult, 1),
 	}
@@ -196,7 +196,7 @@ func (m *MockDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 	if driverConfig.SignalErr != "" {
 		h.signalErr = fmt.Errorf(driverConfig.SignalErr)
 	}
-	m.logger.Printf("[DEBUG] driver.mock: starting task %q", task.Name)
+	m.Logger.Printf("[DEBUG] driver.mock: starting task %q", task.Name)
 	go h.run()
 
 	return &StartResponse{Handle: &h, Network: net}, nil
@@ -211,8 +211,8 @@ func (m *MockDriver) Cleanup(ctx *ExecContext, res *CreatedResources) error {
 	}
 
 	var err error
-	failn, _ := strconv.Atoi(m.config.Options["cleanup_fail_num"])
-	failk := m.config.Options["cleanup_fail_on"]
+	failn, _ := strconv.Atoi(m.Config.Options["cleanup_fail_num"])
+	failk := m.Config.Options["cleanup_fail_on"]
 	for k := range res.Resources {
 		if k == failk && m.cleanupFailNum < failn {
 			m.cleanupFailNum++
@@ -348,7 +348,7 @@ func (m *MockDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, erro
 		exitSignal:  id.ExitSignal,
 		exitErr:     id.ExitErr,
 		signalErr:   id.SignalErr,
-		logger:      m.logger,
+		logger:      m.Logger,
 		doneCh:      make(chan struct{}),
 		waitCh:      make(chan *dstructs.WaitResult, 1),
 	}

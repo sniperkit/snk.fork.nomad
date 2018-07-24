@@ -90,14 +90,14 @@ type qemuHandle struct {
 // along with a descriptive error.
 func (d *QemuDriver) getMonitorPath(dir string) (string, error) {
 	var longPathSupport bool
-	currentQemuVer := d.DriverContext.node.Attributes[qemuDriverVersionAttr]
+	currentQemuVer := d.DriverContext.Node.Attributes[qemuDriverVersionAttr]
 	currentQemuSemver := semver.New(currentQemuVer)
 	if currentQemuSemver.LessThan(*qemuVersionLongSocketPathFix) {
 		longPathSupport = false
-		d.logger.Printf("[DEBUG] driver.qemu: long socket paths are not available in this version of QEMU (%s)", currentQemuVer)
+		d.Logger.Printf("[DEBUG] driver.qemu: long socket paths are not available in this version of QEMU (%s)", currentQemuVer)
 	} else {
 		longPathSupport = true
-		d.logger.Printf("[DEBUG] driver.qemu: long socket paths available in this version of QEMU (%s)", currentQemuVer)
+		d.Logger.Printf("[DEBUG] driver.qemu: long socket paths available in this version of QEMU (%s)", currentQemuVer)
 	}
 	fullSocketPath := fmt.Sprintf("%s/%s", dir, qemuMonitorSocketName)
 	if len(fullSocketPath) > qemuLegacyMaxMonitorPathLen && longPathSupport == false {
@@ -190,7 +190,7 @@ func (d *QemuDriver) Prestart(_ *ExecContext, task *structs.Task) (*PrestartResp
 	}
 
 	if len(driverConfig.PortMap) > 1 {
-		return nil, fmt.Errorf("Only one port_map block is allowed in the qemu driver config")
+		return nil, fmt.Errorf("Only one port_map block is allowed in the qemu driver Config")
 	}
 
 	d.driverConfig = &driverConfig
@@ -249,10 +249,10 @@ func (d *QemuDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		// to perform graceful shutdowns)
 		monitorPath, err = d.getMonitorPath(ctx.TaskDir.Dir)
 		if err != nil {
-			d.logger.Printf("[ERR] driver.qemu: could not get qemu monitor path: %s", err)
+			d.Logger.Printf("[ERR] driver.qemu: could not get qemu monitor path: %s", err)
 			return nil, err
 		}
-		d.logger.Printf("[DEBUG] driver.qemu: got monitor path OK: %s", monitorPath)
+		d.Logger.Printf("[DEBUG] driver.qemu: got monitor path OK: %s", monitorPath)
 		args = append(args, "-monitor", fmt.Sprintf("unix:%s,server,nowait", monitorPath))
 	}
 
@@ -308,14 +308,14 @@ func (d *QemuDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		)
 	}
 
-	d.logger.Printf("[DEBUG] driver.qemu: starting QemuVM command: %q", strings.Join(args, " "))
+	d.Logger.Printf("[DEBUG] driver.qemu: starting QemuVM command: %q", strings.Join(args, " "))
 	pluginLogFile := filepath.Join(ctx.TaskDir.Dir, "executor.out")
 	executorConfig := &dstructs.ExecutorConfig{
 		LogFile:  pluginLogFile,
-		LogLevel: d.config.LogLevel,
+		LogLevel: d.Config.LogLevel,
 	}
 
-	exec, pluginClient, err := createExecutor(d.config.LogOutput, d.config, executorConfig)
+	exec, pluginClient, err := createExecutor(d.Config.LogOutput, d.Config, executorConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -341,10 +341,10 @@ func (d *QemuDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		pluginClient.Kill()
 		return nil, err
 	}
-	d.logger.Printf("[INFO] driver.qemu: started new QemuVM: %s", vmID)
+	d.Logger.Printf("[INFO] driver.qemu: started new QemuVM: %s", vmID)
 
 	// Create and Return Handle
-	maxKill := d.DriverContext.config.MaxKillTimeout
+	maxKill := d.DriverContext.Config.MaxKillTimeout
 	h := &qemuHandle{
 		pluginClient:   pluginClient,
 		executor:       exec,
@@ -352,8 +352,8 @@ func (d *QemuDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		killTimeout:    GetKillTimeout(task.KillTimeout, maxKill),
 		maxKillTimeout: maxKill,
 		monitorPath:    monitorPath,
-		version:        d.config.Version.VersionNumber(),
-		logger:         d.logger,
+		version:        d.Config.Version.VersionNumber(),
+		logger:         d.Logger,
 		doneCh:         make(chan struct{}),
 		waitCh:         make(chan *dstructs.WaitResult, 1),
 	}
@@ -385,23 +385,23 @@ func (d *QemuDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, erro
 		Reattach: id.PluginConfig.PluginConfig(),
 	}
 
-	exec, pluginClient, err := createExecutorWithConfig(pluginConfig, d.config.LogOutput)
+	exec, pluginClient, err := createExecutorWithConfig(pluginConfig, d.Config.LogOutput)
 	if err != nil {
-		d.logger.Printf("[ERR] driver.qemu: error connecting to plugin so destroying plugin pid %d and user pid %d", id.PluginConfig.Pid, id.UserPid)
+		d.Logger.Printf("[ERR] driver.qemu: error connecting to plugin so destroying plugin pid %d and user pid %d", id.PluginConfig.Pid, id.UserPid)
 		if e := destroyPlugin(id.PluginConfig.Pid, id.UserPid); e != nil {
-			d.logger.Printf("[ERR] driver.qemu: error destroying plugin pid %d and userpid %d: %v", id.PluginConfig.Pid, id.UserPid, e)
+			d.Logger.Printf("[ERR] driver.qemu: error destroying plugin pid %d and userpid %d: %v", id.PluginConfig.Pid, id.UserPid, e)
 		}
 		return nil, fmt.Errorf("error connecting to plugin: %v", err)
 	}
 
 	ver, _ := exec.Version()
-	d.logger.Printf("[DEBUG] driver.qemu: version of executor: %v", ver.Version)
+	d.Logger.Printf("[DEBUG] driver.qemu: version of executor: %v", ver.Version)
 	// Return a driver handle
 	h := &qemuHandle{
 		pluginClient:   pluginClient,
 		executor:       exec,
 		userPid:        id.UserPid,
-		logger:         d.logger,
+		logger:         d.Logger,
 		killTimeout:    id.KillTimeout,
 		maxKillTimeout: id.MaxKillTimeout,
 		version:        id.Version,

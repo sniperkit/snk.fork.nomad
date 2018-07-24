@@ -100,8 +100,8 @@ func testDockerDriverContexts(t *testing.T, task *structs.Task) *testContext {
 	tctx := testDriverContexts(t, task)
 
 	// Drop the delay
-	tctx.DriverCtx.config.Options = make(map[string]string)
-	tctx.DriverCtx.config.Options[dockerImageRemoveDelayConfigOption] = "1s"
+	tctx.DriverCtx.Config.Options = make(map[string]string)
+	tctx.DriverCtx.Config.Options[dockerImageRemoveDelayConfigOption] = "1s"
 
 	return tctx
 }
@@ -168,7 +168,7 @@ func TestDockerDriver_Fingerprint(t *testing.T) {
 	}
 
 	ctx := testDockerDriverContexts(t, &structs.Task{Name: "foo", Driver: "docker", Resources: basicResources})
-	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+	//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 	defer ctx.AllocDir.Destroy()
 	d := NewDockerDriver(ctx.DriverCtx)
 	node := &structs.Node{
@@ -318,7 +318,7 @@ func TestDockerDriver_StartOpen_Wait(t *testing.T) {
 	}
 
 	ctx := testDockerDriverContexts(t, task)
-	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+	//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 	defer ctx.AllocDir.Destroy()
 	d := NewDockerDriver(ctx.DriverCtx)
 	copyImage(t, ctx.ExecCtx.TaskDir, "busybox.tar")
@@ -494,7 +494,7 @@ func TestDockerDriver_Start_LoadImage(t *testing.T) {
 	}
 
 	ctx := testDockerDriverContexts(t, task)
-	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+	//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 	defer ctx.AllocDir.Destroy()
 	d := NewDockerDriver(ctx.DriverCtx)
 
@@ -562,7 +562,7 @@ func TestDockerDriver_Start_BadPull_Recoverable(t *testing.T) {
 	}
 
 	ctx := testDockerDriverContexts(t, task)
-	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+	//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 	defer ctx.AllocDir.Destroy()
 	d := NewDockerDriver(ctx.DriverCtx)
 
@@ -615,7 +615,7 @@ func TestDockerDriver_Start_Wait_AllocDir(t *testing.T) {
 	}
 
 	ctx := testDockerDriverContexts(t, task)
-	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+	//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 	defer ctx.AllocDir.Destroy()
 	d := NewDockerDriver(ctx.DriverCtx)
 	copyImage(t, ctx.ExecCtx.TaskDir, "busybox.tar")
@@ -715,7 +715,7 @@ func TestDockerDriver_StartN(t *testing.T) {
 	// Let's spin up a bunch of things
 	for idx, task := range taskList {
 		ctx := testDockerDriverContexts(t, task)
-		//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+		//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 		defer ctx.AllocDir.Destroy()
 		d := NewDockerDriver(ctx.DriverCtx)
 		copyImage(t, ctx.ExecCtx.TaskDir, "busybox.tar")
@@ -780,7 +780,7 @@ func TestDockerDriver_StartNVersions(t *testing.T) {
 	// Let's spin up a bunch of things
 	for idx, task := range taskList {
 		ctx := testDockerDriverContexts(t, task)
-		//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+		//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 		defer ctx.AllocDir.Destroy()
 		d := NewDockerDriver(ctx.DriverCtx)
 		copyImage(t, ctx.ExecCtx.TaskDir, "busybox.tar")
@@ -957,7 +957,7 @@ func TestDockerDriver_Sysctl_Ulimit(t *testing.T) {
 
 	want := "16384"
 	got := container.HostConfig.Sysctls["net.core.somaxconn"]
-	assert.Equal(t, want, got, "Wrong net.core.somaxconn config for docker job. Expect: %s, got: %s", want, got)
+	assert.Equal(t, want, got, "Wrong net.core.somaxconn Config for docker job. Expect: %s, got: %s", want, got)
 
 	expectedUlimitLen := 2
 	actualUlimitLen := len(container.HostConfig.Ulimits)
@@ -965,7 +965,7 @@ func TestDockerDriver_Sysctl_Ulimit(t *testing.T) {
 
 	for _, got := range container.HostConfig.Ulimits {
 		if expectedStr, ok := expectedUlimits[got.Name]; !ok {
-			t.Errorf("%s config unexpected for docker job.", got.Name)
+			t.Errorf("%s Config unexpected for docker job.", got.Name)
 		} else {
 			if !strings.Contains(expectedStr, ":") {
 				expectedStr = expectedStr + ":" + expectedStr
@@ -1066,7 +1066,7 @@ func TestDockerDriver_ForcePull_IsInvalidConfig(t *testing.T) {
 
 	ctx := testDockerDriverContexts(t, task)
 	defer ctx.AllocDir.Destroy()
-	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+	//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 	driver := NewDockerDriver(ctx.DriverCtx)
 
 	if _, err := driver.Prestart(ctx.ExecCtx, task); err == nil {
@@ -1221,7 +1221,7 @@ func TestDockerDriver_Capabilities(t *testing.T) {
 
 			tctx := testDockerDriverContexts(t, task)
 			if tc.Whitelist != "" {
-				tctx.DriverCtx.config.Options[dockerCapsWhitelistConfigOption] = tc.Whitelist
+				tctx.DriverCtx.Config.Options[dockerCapsWhitelistConfigOption] = tc.Whitelist
 			}
 
 			driver := NewDockerDriver(tctx.DriverCtx)
@@ -1516,7 +1516,7 @@ func TestDockerDriver_User(t *testing.T) {
 	}
 
 	ctx := testDockerDriverContexts(t, task)
-	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
+	//ctx.DriverCtx.Config.Options = map[string]string{"docker.cleanup.image": "false"}
 	driver := NewDockerDriver(ctx.DriverCtx)
 	defer ctx.AllocDir.Destroy()
 	copyImage(t, ctx.ExecCtx.TaskDir, "busybox.tar")
@@ -1911,7 +1911,7 @@ func TestDockerDriver_Mounts(t *testing.T) {
 		},
 		{
 			Name:  "multiple driver configs",
-			Error: "volume driver config may only be specified once",
+			Error: "volume driver Config may only be specified once",
 			Mounts: []interface{}{
 				map[string]interface{}{
 					"target": "/nomad",
@@ -2136,7 +2136,7 @@ func TestDockerDriver_AuthConfiguration(t *testing.T) {
 		}
 
 		if !reflect.DeepEqual(act, c.AuthConfig) {
-			t.Fatalf("Test %d failed: Unexpected auth config: got %+v; want %+v", i+1, act, c.AuthConfig)
+			t.Fatalf("Test %d failed: Unexpected auth Config: got %+v; want %+v", i+1, act, c.AuthConfig)
 		}
 	}
 }

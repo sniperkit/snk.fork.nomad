@@ -111,9 +111,9 @@ func (d *ExecDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 	pluginLogFile := filepath.Join(ctx.TaskDir.Dir, "executor.out")
 	executorConfig := &dstructs.ExecutorConfig{
 		LogFile:  pluginLogFile,
-		LogLevel: d.config.LogLevel,
+		LogLevel: d.Config.LogLevel,
 	}
-	exec, pluginClient, err := createExecutor(d.config.LogOutput, d.config, executorConfig)
+	exec, pluginClient, err := createExecutor(d.Config.LogOutput, d.Config, executorConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -149,10 +149,10 @@ func (d *ExecDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		return nil, err
 	}
 
-	d.logger.Printf("[DEBUG] driver.exec: started process via plugin with pid: %v", ps.Pid)
+	d.Logger.Printf("[DEBUG] driver.exec: started process via plugin with pid: %v", ps.Pid)
 
 	// Return a driver handle
-	maxKill := d.DriverContext.config.MaxKillTimeout
+	maxKill := d.DriverContext.Config.MaxKillTimeout
 	h := &execHandle{
 		pluginClient:    pluginClient,
 		userPid:         ps.Pid,
@@ -160,8 +160,8 @@ func (d *ExecDriver) Start(ctx *ExecContext, task *structs.Task) (*StartResponse
 		isolationConfig: ps.IsolationConfig,
 		killTimeout:     GetKillTimeout(task.KillTimeout, maxKill),
 		maxKillTimeout:  maxKill,
-		logger:          d.logger,
-		version:         d.config.Version.VersionNumber(),
+		logger:          d.Logger,
+		version:         d.Config.Version.VersionNumber(),
 		doneCh:          make(chan struct{}),
 		waitCh:          make(chan *dstructs.WaitResult, 1),
 		taskDir:         ctx.TaskDir,
@@ -190,11 +190,11 @@ func (d *ExecDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, erro
 	pluginConfig := &plugin.ClientConfig{
 		Reattach: id.PluginConfig.PluginConfig(),
 	}
-	exec, client, err := createExecutorWithConfig(pluginConfig, d.config.LogOutput)
+	exec, client, err := createExecutorWithConfig(pluginConfig, d.Config.LogOutput)
 	if err != nil {
 		merrs := new(multierror.Error)
 		merrs.Errors = append(merrs.Errors, err)
-		d.logger.Println("[ERR] driver.exec: error connecting to plugin so destroying plugin pid and user pid")
+		d.Logger.Println("[ERR] driver.exec: error connecting to plugin so destroying plugin pid and user pid")
 		if e := destroyPlugin(id.PluginConfig.Pid, id.UserPid); e != nil {
 			merrs.Errors = append(merrs.Errors, fmt.Errorf("error destroying plugin and userpid: %v", e))
 		}
@@ -208,14 +208,14 @@ func (d *ExecDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, erro
 	}
 
 	ver, _ := exec.Version()
-	d.logger.Printf("[DEBUG] driver.exec : version of executor: %v", ver.Version)
+	d.Logger.Printf("[DEBUG] driver.exec : version of executor: %v", ver.Version)
 	// Return a driver handle
 	h := &execHandle{
 		pluginClient:    client,
 		executor:        exec,
 		userPid:         id.UserPid,
 		isolationConfig: id.IsolationConfig,
-		logger:          d.logger,
+		logger:          d.Logger,
 		version:         id.Version,
 		killTimeout:     id.KillTimeout,
 		maxKillTimeout:  id.MaxKillTimeout,

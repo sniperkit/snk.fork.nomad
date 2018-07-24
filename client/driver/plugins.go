@@ -31,7 +31,7 @@ func GetPluginMap(w io.Writer, logLevel string) map[string]plugin.Plugin {
 	}
 }
 
-// ExecutorReattachConfig is the config that we serialize and de-serialize and
+// ExecutorReattachConfig is the Config that we serialize and de-serialize and
 // store in disk
 type PluginReattachConfig struct {
 	Pid      int
@@ -39,7 +39,7 @@ type PluginReattachConfig struct {
 	AddrName string
 }
 
-// PluginConfig returns a config from an ExecutorReattachConfig
+// PluginConfig returns a Config from an ExecutorReattachConfig
 func (c *PluginReattachConfig) PluginConfig() *plugin.ReattachConfig {
 	var addr net.Addr
 	switch c.AddrNet {
