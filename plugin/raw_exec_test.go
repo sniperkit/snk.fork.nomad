@@ -289,7 +289,7 @@ func TestRawExecDriver_Start_Kill_Wait_Cgroup(t *testing.T) {
 	testtask.SetTaskEnv(task)
 
 	ctx := testDriverContexts(t, task)
-	ctx.DriverCtx.node.Attributes["unique.cgroup.mountpoint"] = "foo" // Enable cgroups
+	ctx.DriverCtx.Node.Attributes["unique.cgroup.mountpoint"] = "foo" // Enable cgroups
 	defer ctx.AllocDir.Destroy()
 	d := NewRawExecDriver(ctx.DriverCtx)
 

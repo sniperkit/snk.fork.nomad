@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/hashicorp/consul-template/signals"
@@ -15,6 +16,7 @@ import (
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/config"
+	"github.com/hashicorp/nomad/client/driver"
 	"github.com/hashicorp/nomad/client/driver/env"
 	"github.com/hashicorp/nomad/client/driver/executor"
 	dstructs "github.com/hashicorp/nomad/client/driver/structs"
@@ -47,8 +49,8 @@ func createExecutor(w io.Writer, clientConfig *config.Config,
 	config := &plugin.ClientConfig{
 		Cmd: exec.Command(bin, "executor", string(c)),
 	}
-	config.HandshakeConfig = HandshakeConfig
-	config.Plugins = GetPluginMap(w, clientConfig.LogLevel)
+	config.HandshakeConfig = driver.HandshakeConfig
+	config.Plugins = driver.GetPluginMap(w, clientConfig.LogLevel)
 	config.MaxPort = clientConfig.ClientMaxPort
 	config.MinPort = clientConfig.ClientMinPort
 
@@ -72,12 +74,22 @@ func createExecutor(w io.Writer, clientConfig *config.Config,
 	return executorPlugin, executorClient, nil
 }
 
+// isolateCommand sets the setsid flag in exec.Cmd to true so that the process
+// becomes the process leader in a new session and doesn't receive signals that
+// are sent to the parent process.
+func isolateCommand(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setsid = true
+}
+
 func createExecutorWithConfig(config *plugin.ClientConfig, w io.Writer) (executor.Executor, *plugin.Client, error) {
-	config.HandshakeConfig = HandshakeConfig
+	config.HandshakeConfig = driver.HandshakeConfig
 
 	// Setting this to DEBUG since the log level at the executor server process
 	// is already set, and this effects only the executor client.
-	config.Plugins = GetPluginMap(w, "DEBUG")
+	config.Plugins = driver.GetPluginMap(w, "DEBUG")
 
 	executorClient := plugin.NewClient(config)
 	rpcClient, err := executorClient.Client()
@@ -89,7 +101,7 @@ func createExecutorWithConfig(config *plugin.ClientConfig, w io.Writer) (executo
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to dispense the executor plugin: %v", err)
 	}
-	executorPlugin, ok := raw.(*ExecutorRPC)
+	executorPlugin, ok := raw.(*driver.ExecutorRPC)
 	if !ok {
 		return nil, nil, fmt.Errorf("unexpected executor rpc type: %T", raw)
 	}
