@@ -199,7 +199,7 @@ func (d *LxcDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstructs
 	resp.Detected = true
 
 	// Advertise if this node supports lxc volumes
-	if d.config.ReadBoolDefault(lxcVolumesConfigOption, lxcVolumesConfigDefault) {
+	if d.Config.ReadBoolDefault(lxcVolumesConfigOption, lxcVolumesConfigDefault) {
 		resp.AddAttribute("driver."+lxcVolumesConfigOption, "1")
 	}
 
@@ -228,7 +228,7 @@ func (d *LxcDriver) startWithCleanup(ctx *ExecContext, task *structs.Task) (*Sta
 		return nil, err, noCleanup
 	}
 	lxcPath := lxc.DefaultConfigPath()
-	if path := d.config.Read("driver.lxc.path"); path != "" {
+	if path := d.Config.Read("driver.lxc.path"); path != "" {
 		lxcPath = path
 	}
 
@@ -295,7 +295,7 @@ func (d *LxcDriver) startWithCleanup(ctx *ExecContext, task *structs.Task) (*Sta
 		fmt.Sprintf("%s secrets none rw,bind,create=dir", ctx.TaskDir.SecretsDir),
 	}
 
-	volumesEnabled := d.config.ReadBoolDefault(lxcVolumesConfigOption, lxcVolumesConfigDefault)
+	volumesEnabled := d.Config.ReadBoolDefault(lxcVolumesConfigOption, lxcVolumesConfigDefault)
 
 	for _, volDesc := range driverConfig.Volumes {
 		// the format was checked in Validate()
@@ -343,9 +343,9 @@ func (d *LxcDriver) startWithCleanup(ctx *ExecContext, task *structs.Task) (*Sta
 		container:      c,
 		initPid:        c.InitPid(),
 		lxcPath:        lxcPath,
-		logger:         d.logger,
-		killTimeout:    GetKillTimeout(task.KillTimeout, d.DriverContext.config.MaxKillTimeout),
-		maxKillTimeout: d.DriverContext.config.MaxKillTimeout,
+		logger:         d.Logger,
+		killTimeout:    GetKillTimeout(task.KillTimeout, d.DriverContext.Config.MaxKillTimeout),
+		maxKillTimeout: d.DriverContext.Config.MaxKillTimeout,
 		totalCpuStats:  stats.NewCpuStats(),
 		userCpuStats:   stats.NewCpuStats(),
 		systemCpuStats: stats.NewCpuStats(),
@@ -384,9 +384,9 @@ func (d *LxcDriver) Open(ctx *ExecContext, handleID string) (DriverHandle, error
 		container:      container,
 		initPid:        container.InitPid(),
 		lxcPath:        pid.LxcPath,
-		logger:         d.logger,
+		logger:         d.Logger,
 		killTimeout:    pid.KillTimeout,
-		maxKillTimeout: d.DriverContext.config.MaxKillTimeout,
+		maxKillTimeout: d.DriverContext.Config.MaxKillTimeout,
 		totalCpuStats:  stats.NewCpuStats(),
 		userCpuStats:   stats.NewCpuStats(),
 		systemCpuStats: stats.NewCpuStats(),
