@@ -21,6 +21,7 @@ import (
 	"github.com/hashicorp/nomad/client/fingerprint"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/helper/fields"
+	"github.com/hashicorp/nomad/helper/testtask"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers/raw_exec_driver/proto"
 	"github.com/mitchellh/mapstructure"
@@ -135,9 +136,38 @@ func (d *RawExecDriver) Prestart(*driver.ExecContext, *structs.Task) (*driver.Pr
 }
 
 // Dummy instance for now
-func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, task *proto.TaskInfo) (*proto.StartResponse, error) {
+func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, taskInfo *proto.TaskInfo) (*proto.StartResponse, error) {
+	execCtx := &driver.ExecContext{
+		TaskEnv: &env.TaskEnv{},
+		TaskDir: &allocdir.TaskDir{
+			LogDir: "",
+		},
+		LogLevel:  "DEBUG",
+		LogOutput: nil,
+	}
+	task := &structs.Task{
+		Name:   "a",
+		Driver: "raw_exec",
+		Config: map[string]interface{}{
+			"command": testtask.Path(),
+			"args":    []string{"sleep", "1s"},
+		},
+		LogConfig: &structs.LogConfig{
+			MaxFiles:      10,
+			MaxFileSizeMB: 10,
+		},
+		Resources: &structs.Resources{
+			CPU:      250,
+			MemoryMB: 256,
+			DiskMB:   20,
+		},
+	}
+	startResp, err := d.Start(execCtx, task)
+	if err != nil || startResp == nil || startResp.Handle == nil {
+		return &proto.StartResponse{}, err
+	}
 	resp := &proto.StartResponse{
-		TaskId: "12345",
+		TaskId: startResp.Handle.ID(),
 	}
 	return resp, nil
 }
@@ -157,10 +187,10 @@ func (d *RawExecDriver) Start(ctx *driver.ExecContext, task *structs.Task) (*dri
 	pluginLogFile := filepath.Join(ctx.TaskDir.Dir, "executor.out")
 	executorConfig := &dstructs.ExecutorConfig{
 		LogFile:  pluginLogFile,
-		LogLevel: d.DriverContext.Config.LogLevel,
+		LogLevel: ctx.LogLevel,
 	}
 
-	exec, pluginClient, err := createExecutor(d.DriverContext.Config.LogOutput, d.DriverContext.Config, executorConfig)
+	exec, pluginClient, err := createExecutor(ctx.LogOutput, d.DriverContext.Config, executorConfig)
 	if err != nil {
 		return nil, err
 	}
