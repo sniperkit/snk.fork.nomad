@@ -33,7 +33,7 @@ func cgroupsMounted(node *structs.Node) bool {
 
 // createExecutor launches an executor plugin and returns an instance of the
 // Executor interface
-func createExecutor2(w io.Writer, executorConfig *dstructs.ExecutorConfig) (executor.Executor, *plugin.Client, error) {
+func createExecutor2(w io.Writer, executorConfig *ExecutorConfig) (executor.Executor, *plugin.Client, error) {
 
 	c, err := json.Marshal(executorConfig)
 	if err != nil {
