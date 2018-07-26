@@ -45,5 +45,5 @@ func main() {
 		fmt.Printf("Encountered errors: %s \n", err.Error())
 	}
 
-	fmt.Printf(" Found task id: %s \n", result.TaskId)
+	fmt.Printf(": %s \n", result)
 }

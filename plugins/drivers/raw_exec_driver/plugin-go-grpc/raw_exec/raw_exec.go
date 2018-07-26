@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -21,7 +22,6 @@ import (
 	"github.com/hashicorp/nomad/client/fingerprint"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/helper/fields"
-	"github.com/hashicorp/nomad/helper/testtask"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers/raw_exec_driver/proto"
 	"github.com/mitchellh/mapstructure"
@@ -135,22 +135,52 @@ func (d *RawExecDriver) Prestart(*driver.ExecContext, *structs.Task) (*driver.Pr
 	return nil, nil
 }
 
+// ExecContext is a task's execution context
+type ExecContext struct {
+	// TaskDir contains information about the task directory structure.
+	TaskDir *allocdir.TaskDir
+
+	// TaskEnv contains the task's environment variables.
+	TaskEnv *env.TaskEnv
+
+	// TODO these should really be defined on another ExecContext obj in the plugin dir
+	LogLevel string
+
+	LogOutput io.Writer
+
+	MaxPort        uint
+	MinPort        uint
+	MaxKillTimeout time.Duration
+	Version        string
+}
+
 // Dummy instance for now
 func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, taskInfo *proto.TaskInfo) (*proto.StartResponse, error) {
-	execCtx := &driver.ExecContext{
+	taskName := "taskName"
+	taskLogger := os.Stdout
+	logDir, err := os.Getwd() // TODO
+	if err != nil {
+		panic(fmt.Sprintf("error getting working directory: %s \n", err.Error()))
+	}
+
+	execCtx := &ExecContext{
 		TaskEnv: &env.TaskEnv{},
 		TaskDir: &allocdir.TaskDir{
-			LogDir: "",
+			LogDir: logDir,
 		},
-		LogLevel:  "DEBUG",
-		LogOutput: nil,
+		LogLevel:       "DEBUG",
+		LogOutput:      taskLogger,
+		MaxPort:        5000,
+		MinPort:        2000,
+		MaxKillTimeout: time.Duration(5),
+		Version:        "1.0", // TODO was d.DriverContext.Config.Version.VersionNumber()
 	}
 	task := &structs.Task{
-		Name:   "a",
+		Name:   taskName,
 		Driver: "raw_exec",
 		Config: map[string]interface{}{
-			"command": testtask.Path(),
-			"args":    []string{"sleep", "1s"},
+			"command": "/bin/echo",
+			"args":    []string{"hello world"},
 		},
 		LogConfig: &structs.LogConfig{
 			MaxFiles:      10,
@@ -162,6 +192,7 @@ func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, taskInfo *proto.TaskInf
 			DiskMB:   20,
 		},
 	}
+
 	startResp, err := d.Start(execCtx, task)
 	if err != nil || startResp == nil || startResp.Handle == nil {
 		return &proto.StartResponse{}, err
@@ -172,7 +203,7 @@ func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, taskInfo *proto.TaskInf
 	return resp, nil
 }
 
-func (d *RawExecDriver) Start(ctx *driver.ExecContext, task *structs.Task) (*driver.StartResponse, error) {
+func (d *RawExecDriver) Start(ctx *ExecContext, task *structs.Task) (*driver.StartResponse, error) {
 	var driverConfig driver.ExecDriverConfig
 	if err := mapstructure.WeakDecode(task.Config, &driverConfig); err != nil {
 		return nil, err
@@ -188,9 +219,11 @@ func (d *RawExecDriver) Start(ctx *driver.ExecContext, task *structs.Task) (*dri
 	executorConfig := &dstructs.ExecutorConfig{
 		LogFile:  pluginLogFile,
 		LogLevel: ctx.LogLevel,
+		MaxPort:  ctx.MaxPort,
+		MinPort:  ctx.MinPort,
 	}
 
-	exec, pluginClient, err := createExecutor(ctx.LogOutput, d.DriverContext.Config, executorConfig)
+	exec, pluginClient, err := createExecutor2(ctx.LogOutput, executorConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +259,7 @@ func (d *RawExecDriver) Start(ctx *driver.ExecContext, task *structs.Task) (*dri
 	// TODO d.logger.Printf("[DEBUG] driver.raw_exec: started process with pid: %v", ps.Pid)
 
 	// Return a driver handle
-	maxKill := d.DriverContext.Config.MaxKillTimeout
+	maxKill := ctx.MaxKillTimeout
 	h := &rawExecHandle{
 		pluginClient:    pluginClient,
 		executor:        exec,
@@ -234,7 +267,7 @@ func (d *RawExecDriver) Start(ctx *driver.ExecContext, task *structs.Task) (*dri
 		userPid:         ps.Pid,
 		killTimeout:     GetKillTimeout(task.KillTimeout, maxKill),
 		maxKillTimeout:  maxKill,
-		version:         d.DriverContext.Config.Version.VersionNumber(),
+		version:         ctx.Version,
 		// TODO logger:          d.logger,
 		doneCh:  make(chan struct{}),
 		waitCh:  make(chan *dstructs.WaitResult, 1),
