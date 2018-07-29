@@ -135,14 +135,13 @@ func (d *RawExecDriver) Prestart(*driver.ExecContext, *structs.Task) (*driver.Pr
 
 // Shim for Start method, this needs to be cleaned up with methods extracted
 // and all extra types need to be added to the protobuf and not be hardcoded here.
-func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, tmpTaskInfo *proto.TaskInfo) (*proto.StartResponse, error) {
-
+func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, tInfo *proto.TaskInfo) (*proto.StartResponse, error) {
 	execCtx := &ExecContext{
 		TaskEnv: &TaskEnv{},
 		TaskDir: &TaskDir{
 			Dir:       ctx.TaskDir.Directory,
 			LogDir:    ctx.TaskDir.LogDir,
-			LogLevel:  "DEBUG",
+			LogLevel:  ctx.TaskDir.LogLevel,
 			LogOutput: os.Stdout,
 		},
 		MaxPort:        5000,
@@ -152,17 +151,17 @@ func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, tmpTaskInfo *proto.Task
 	}
 	taskInfo := &TaskInfo{
 		Resources: &Resources{
-			CPU:      int(tmpTaskInfo.Resources.Cpu),
-			MemoryMB: int(tmpTaskInfo.Resources.MemoryMb),
-			DiskMB:   int(tmpTaskInfo.Resources.DiskMb),
+			CPU:      int(tInfo.Resources.Cpu),
+			MemoryMB: int(tInfo.Resources.MemoryMb),
+			DiskMB:   int(tInfo.Resources.DiskMb),
 		},
 		LogConfig: &LogConfig{
-			MaxFiles:      int(tmpTaskInfo.LogConfig.MaxFiles),
-			MaxFileSizeMB: int(tmpTaskInfo.LogConfig.MaxFileSizeMb),
+			MaxFiles:      int(tInfo.LogConfig.MaxFiles),
+			MaxFileSizeMB: int(tInfo.LogConfig.MaxFileSizeMb),
 		},
 		Name: "taskName",
 		Config: &Config{
-			Command: "/bin/echo",
+			Command: "echo",
 			Args:    []string{"hello world"},
 		},
 	}

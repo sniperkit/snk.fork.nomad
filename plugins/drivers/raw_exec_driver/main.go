@@ -47,6 +47,7 @@ func main() {
 		TaskDir: &proto.TaskDir{
 			Directory: currentDir,
 			LogDir:    currentDir,
+			LogLevel:  "DEBUG",
 		},
 		TaskEnv: &proto.TaskEnv{},
 	}
@@ -60,7 +61,6 @@ func main() {
 			MaxFiles:      10,
 			MaxFileSizeMb: 10,
 		},
-		// TODO config
 	}
 
 	result, err := rawExec.NewStart(execCtx, taskInfo)
