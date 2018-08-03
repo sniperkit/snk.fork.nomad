@@ -1,6 +1,7 @@
 syntax = "proto3";
 package proto;
 import "google/protobuf/struct.proto";
+import "google/protobuf/duration.proto";
 
 message Port {
   string label = 1;
@@ -69,12 +70,45 @@ message DriverNetwork {
 }
 
 message StartResponse {
-  string task_id = 1;
-  DriverNetwork driver_network = 2;
+  DriverNetwork driver_network = 1;
+  TaskState taskState = 2;
+}
+
+message PluginReattachInfo {
+	uint32 pid = 1;
+	string address_network = 2;
+	string address_name = 3;
+}
+
+message TaskState {
+    string task_id = 1;
+    PluginReattachInfo reattach_info = 2;
+    google.protobuf.Duration kill_timeout = 3;
+    google.protobuf.Duration max_kill_timeout = 4;
+    google.protobuf.Struct reattach_meta = 5;
+    string task_dir = 6;
+    string log_dir = 7;
+    string log_level = 8;
+    uint32 min_port = 9;
+    uint32 max_port = 10;
+}
+
+message RestoreRequest {
+    repeated TaskState task_states = 1;
+}
+
+message TaskRestoreResponse {
+    string task_id = 1;
+    string errorMessage = 2;
+}
+
+message RestoreResponse {
+    repeated TaskRestoreResponse restore_results = 1;
 }
 
 message Empty {}
 
 service RawExec {
     rpc NewStart(StartRequest) returns (StartResponse);
+    rpc Restore(RestoreRequest) returns (RestoreResponse);
 }

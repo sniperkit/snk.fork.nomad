@@ -11,7 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"strconv"
+
 	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/ptypes/duration"
+	"github.com/golang/protobuf/ptypes/struct"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/nomad/client/allocdir"
@@ -22,6 +26,7 @@ import (
 	"github.com/hashicorp/nomad/client/fingerprint"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/helper/fields"
+	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers/raw_exec_driver/proto"
 )
@@ -42,12 +47,17 @@ const (
 // resource isolation and just fork/execs. The Exec driver should be preferred
 // and this should only be used when explicitly needed.
 type RawExecDriver struct {
+	// TODO(preetha) delete driver context after cleaning up the rest of this
 	DriverContext DriverContext
 	fingerprint.StaticFingerprinter
 
 	// useCgroup tracks whether we should use a cgroup to manage the process
 	// tree
 	useCgroup bool
+
+	// taskStateMap is a map to track all tasks started by this driver
+	// TODO(preetha) does this need locking?
+	taskStateMap map[string]*proto.TaskState
 }
 
 // LogEventFn is a callback which allows Drivers to emit task events.
@@ -76,7 +86,7 @@ type RawExecTaskConfig struct {
 
 // NewRawExecDriver is used to create a new raw exec driver
 func NewRawExecDriver(ctx *DriverContext) *RawExecDriver {
-	return &RawExecDriver{DriverContext: *ctx}
+	return &RawExecDriver{DriverContext: *ctx, taskStateMap: make(map[string]*proto.TaskState)}
 }
 
 // Validate is used to validate the driver configuration
@@ -189,8 +199,101 @@ func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, tInfo *proto.TaskInfo) 
 	if err != nil || startResp == nil || startResp.Handle == nil {
 		return &proto.StartResponse{}, err
 	}
-	resp := &proto.StartResponse{
-		TaskId: startResp.Handle.ID(),
+
+	// TODO(preetha): remove this ugly type cast
+	handleRawExec, ok := startResp.Handle.(*rawExecHandle)
+	resp := &proto.StartResponse{}
+	if ok {
+		taskUUId := uuid.Generate()
+		taskState := &proto.TaskState{
+			TaskId:       taskUUId,
+			ReattachInfo: marshallPluginReattachConfig(handleRawExec.pluginClient.ReattachConfig()),
+			KillTimeout: &duration.Duration{
+				Seconds: int64(handleRawExec.killTimeout.Seconds()),
+				Nanos:   int32(handleRawExec.killTimeout.Nanoseconds()),
+			},
+			MaxKillTimeout: &duration.Duration{
+				Seconds: int64(handleRawExec.maxKillTimeout.Seconds()),
+				Nanos:   int32(handleRawExec.maxKillTimeout.Nanoseconds()),
+			},
+			ReattachMeta: &structpb.Struct{
+				//TODO(preetha): figure out what other useful stuff can be put in here
+				Fields: map[string]*structpb.Value{
+					"pid": &structpb.Value{Kind: &structpb.Value_NumberValue{float64(handleRawExec.userPid)}},
+				},
+			},
+			TaskDir:  execCtx.TaskDir.Dir,
+			LogDir:   execCtx.TaskDir.LogDir,
+			LogLevel: execCtx.LogLevel,
+			MaxPort:  uint32(execCtx.MaxPort),
+			MinPort:  uint32(execCtx.MaxPort),
+		}
+		resp.TaskState = taskState
+		d.taskStateMap[taskUUId] = taskState
+	}
+
+	return resp, nil
+}
+
+func (d *RawExecDriver) Restore(taskStates []*proto.TaskState) (*proto.RestoreResponse, error) {
+	resp := &proto.RestoreResponse{}
+	var toRestore []*proto.TaskState
+
+	// Reconcile with the list of running tasks this driver already knows about
+	for _, ts := range taskStates {
+		taskStateInMemory, ok := d.taskStateMap[ts.TaskId]
+		if !ok {
+			toRestore = append(toRestore, taskStateInMemory)
+		}
+	}
+
+	var responses []*proto.TaskRestoreResponse
+	// Reattach to tasks that this driver did not have in its state
+	for _, ts := range toRestore {
+		pluginReattachConfig := unMarshallPluginReattachConfig(ts.ReattachInfo)
+		pluginLogFile := filepath.Join(ts.TaskDir, "executor.out")
+		executorConfig := &ExecutorConfig{
+			LogFile:  pluginLogFile,
+			LogLevel: ts.LogLevel,
+			MaxPort:  uint(ts.MaxPort),
+			MinPort:  uint(ts.MinPort),
+		}
+
+		exec, pluginClient, err := createExecutor2(os.Stdout, executorConfig, pluginReattachConfig)
+		if err != nil {
+			errorMsg := fmt.Errorf("error connecting to executor plugin: %v", err)
+			responses = append(responses, &proto.TaskRestoreResponse{TaskId: ts.TaskId, ErrorMessage: errorMsg.Error()})
+			continue
+		}
+		userPID := ts.ReattachMeta.Fields["pid"].GetStringValue()
+		pid, err := strconv.Atoi(userPID)
+		if err != nil {
+			//TODO(preetha) fix me
+			fmt.Println("*** error unmarshalling PID")
+		}
+
+		taskDir := &allocdir.TaskDir{
+			Dir:    ts.TaskDir,
+			LogDir: ts.LogDir,
+		}
+		// TODO ver, _ := exec.Version()
+		// TODO d.logger.Printf("[DEBUG] driver.raw_exec: version of executor: %v", ver.Version)
+
+		// Return a driver handle
+		h := &rawExecHandle{
+			pluginClient: pluginClient,
+			executor:     exec,
+			userPid:      pid,
+			// TODO logger:          d.logger,
+			killTimeout:    time.Duration(ts.KillTimeout.Seconds),
+			maxKillTimeout: time.Duration(ts.MaxKillTimeout.Seconds),
+			doneCh:         make(chan struct{}),
+			waitCh:         make(chan *dstructs.WaitResult, 1),
+			taskEnv:        &env.TaskEnv{},
+			taskDir:        taskDir,
+		}
+		go h.run()
+		responses = append(responses, &proto.TaskRestoreResponse{TaskId: ts.TaskId})
 	}
 	return resp, nil
 }
@@ -209,7 +312,7 @@ func (d *RawExecDriver) Start(ctx *ExecContext, taskInfo *TaskInfo) (*driver.Sta
 		MinPort:  ctx.MinPort,
 	}
 
-	exec, pluginClient, err := createExecutor2(ctx.TaskDir.LogOutput, executorConfig)
+	exec, pluginClient, err := createExecutor2(ctx.TaskDir.LogOutput, executorConfig, nil)
 	if err != nil {
 		return nil, err
 	}

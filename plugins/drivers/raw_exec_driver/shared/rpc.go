@@ -23,3 +23,9 @@ func (m *RPCServer) NewStart(req *proto.StartRequest, resp *proto.StartResponse)
 	resp = v
 	return err
 }
+
+func (m *RPCServer) Restore(req *proto.RestoreRequest, resp *proto.RestoreResponse) error {
+	v, err := m.Impl.Restore(req.TaskStates)
+	resp = v
+	return err
+}
