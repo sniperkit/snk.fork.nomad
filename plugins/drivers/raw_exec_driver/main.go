@@ -49,7 +49,7 @@ func main() {
 	if args[0] == "start" {
 		doStart(rawExec)
 	} else if args[0] == "restore" {
-		doRestore(rawExec)
+		doRestore(rawExec, args[1])
 	}
 
 }
@@ -109,13 +109,13 @@ func doStart(rawExec shared.RawExec) {
 	w.Flush()
 }
 
-func doRestore(rawExec shared.RawExec) {
+func doRestore(rawExec shared.RawExec, taskID string) {
 	wd, err := os.Getwd()
 	if err != nil {
 		fmt.Println("Unexpected error getting current working directory:%v", err)
 		return
 	}
-	taskStateFile := fmt.Sprintf("%v/%v.json", wd, "bc2bfd9f-ca91-3e91-343b-108c168862d3")
+	taskStateFile := fmt.Sprintf("%v/%v.json", wd, taskID)
 	f, err := os.Open(taskStateFile)
 	defer f.Close()
 	r := bufio.NewReader(f)
@@ -123,7 +123,7 @@ func doRestore(rawExec shared.RawExec) {
 	taskState := &proto.TaskState{}
 	unMarshaller.Unmarshal(r, taskState)
 
-	fmt.Printf("After unmarshalling json %+v\n", taskState)
+	fmt.Printf("After unmarshalling json: %+v\n", taskState)
 
 	restoreResp, err := rawExec.Restore([]*proto.TaskState{taskState})
 	if err != nil {
@@ -132,7 +132,7 @@ func doRestore(rawExec shared.RawExec) {
 	}
 	for _, resp := range restoreResp.RestoreResults {
 		if resp.ErrorMessage != "" {
-			fmt.Println("Error restoring task ", resp.TaskId)
+			fmt.Println("Error restoring task ", resp.TaskId, resp.ErrorMessage)
 		} else {
 			fmt.Println("Successfully reattached to task ", resp.TaskId)
 		}

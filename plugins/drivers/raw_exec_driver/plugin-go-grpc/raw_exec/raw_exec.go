@@ -8,10 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
-
-	"strconv"
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/ptypes/duration"
@@ -225,7 +224,7 @@ func (d *RawExecDriver) NewStart(ctx *proto.ExecContext, tInfo *proto.TaskInfo) 
 			TaskDir:  execCtx.TaskDir.Dir,
 			LogDir:   execCtx.TaskDir.LogDir,
 			LogLevel: execCtx.LogLevel,
-			MaxPort:  uint32(execCtx.MaxPort),
+			MaxPort:  uint32(execCtx.MinPort),
 			MinPort:  uint32(execCtx.MaxPort),
 		}
 		resp.TaskState = taskState
@@ -239,16 +238,17 @@ func (d *RawExecDriver) Restore(taskStates []*proto.TaskState) (*proto.RestoreRe
 	resp := &proto.RestoreResponse{}
 	var toRestore []*proto.TaskState
 
+	var responses []*proto.TaskRestoreResponse
 	// Reconcile with the list of running tasks this driver already knows about
 	for _, ts := range taskStates {
-		taskStateInMemory, ok := d.taskStateMap[ts.TaskId]
+		_, ok := d.taskStateMap[ts.TaskId]
 		if !ok {
-			toRestore = append(toRestore, taskStateInMemory)
+			toRestore = append(toRestore, ts)
 		}
 	}
 
-	var responses []*proto.TaskRestoreResponse
-	// Reattach to tasks that this driver did not have in its state
+	fmt.Println("About to restore ", len(toRestore), " tasks")
+	// Reattach to tasks that this driver did not have in its
 	for _, ts := range toRestore {
 		pluginReattachConfig := unMarshallPluginReattachConfig(ts.ReattachInfo)
 		pluginLogFile := filepath.Join(ts.TaskDir, "executor.out")
@@ -258,6 +258,7 @@ func (d *RawExecDriver) Restore(taskStates []*proto.TaskState) (*proto.RestoreRe
 			MaxPort:  uint(ts.MaxPort),
 			MinPort:  uint(ts.MinPort),
 		}
+		fmt.Println("After unmarshalling: ", pluginReattachConfig, executorConfig)
 
 		exec, pluginClient, err := createExecutor2(os.Stdout, executorConfig, pluginReattachConfig)
 		if err != nil {
@@ -276,10 +277,7 @@ func (d *RawExecDriver) Restore(taskStates []*proto.TaskState) (*proto.RestoreRe
 			Dir:    ts.TaskDir,
 			LogDir: ts.LogDir,
 		}
-		// TODO ver, _ := exec.Version()
-		// TODO d.logger.Printf("[DEBUG] driver.raw_exec: version of executor: %v", ver.Version)
-
-		// Return a driver handle
+		// Create a driver handle
 		h := &rawExecHandle{
 			pluginClient: pluginClient,
 			executor:     exec,
@@ -292,9 +290,14 @@ func (d *RawExecDriver) Restore(taskStates []*proto.TaskState) (*proto.RestoreRe
 			taskEnv:        &env.TaskEnv{},
 			taskDir:        taskDir,
 		}
+		fmt.Println("Going to run handle ", h.userPid)
 		go h.run()
+		d.taskStateMap[ts.TaskId] = ts
+
+		// Append to responses list
 		responses = append(responses, &proto.TaskRestoreResponse{TaskId: ts.TaskId})
 	}
+	resp.RestoreResults = responses
 	return resp, nil
 }
 

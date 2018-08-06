@@ -39,18 +39,20 @@ func createExecutor2(w io.Writer, executorConfig *ExecutorConfig, reattachConfig
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create executor config: %v", err)
 	}
-	//bin, err := discover.NomadExecutable()
+	/*bin, err := discover.NomadExecutable()
 	//	if err != nil {
 	//		return nil, nil, fmt.Errorf("unable to find the nomad binary: %v", err)
-	//	}
+	//	} */
 	// TODO
 	bin := "nomad"
 
-	config := &plugin.ClientConfig{
-		Cmd: exec.Command(bin, "executor", string(c)),
-	}
+	config := &plugin.ClientConfig{}
+
+	// Set either one of reattachConfig or cmd fields
 	if reattachConfig != nil {
 		config.Reattach = reattachConfig
+	} else {
+		config.Cmd = exec.Command(bin, "executor", string(c))
 	}
 	config.HandshakeConfig = driver.HandshakeConfig
 	config.Plugins = driver.GetPluginMap(w, executorConfig.LogLevel)
