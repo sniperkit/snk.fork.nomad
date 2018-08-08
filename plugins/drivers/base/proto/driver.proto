@@ -1,0 +1,82 @@
+syntax = "proto3";
+package hashicorp.nomad.plugins.drivers.base.proto;
+option go_package = "proto";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+service TaskRecorder {
+    rpc Record(RecordRequest) returns (google.protobuf.Empty) {}
+}
+
+message RecordRequest {
+  string driver = 1;
+  string task_id = 2;
+  TaskEvent event = 3;
+}
+
+message TaskEvent {
+  string event_type = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string driver = 3;
+  string description = 4;
+  map<string, string> attrs = 5;
+}
+
+service Driver {
+    rpc RecoverTask(RecoverTaskRequest) returns (google.protobuf.Empty) {}
+    rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse) {}
+}
+
+message RecoverTaskRequest {
+    string task_id = 1;
+    repeated TaskEvent events = 2;
+}
+
+message CreateTaskRequest {
+    TaskInfo task = 1;
+}
+
+message TaskInfo {
+    string name = 1;
+    string user = 2;
+    google.protobuf.Struct driver_config = 3;
+    map<string, string> env = 4;
+    Resources resources = 5;
+    repeated Mount mounts = 6;
+    repeated Device devices = 7;
+}
+
+message Resources {
+    // CPU CFS (Completely Fair Scheduler) period. Default: 0 (not specified).
+    int64 cpu_period = 1;
+    // CPU CFS (Completely Fair Scheduler) quota. Default: 0 (not specified).
+    int64 cpu_quota = 2;
+    // CPU shares (relative weight vs. other containers). Default: 0 (not specified).
+    int64 cpu_shares = 3;
+    // Memory limit in bytes. Default: 0 (not specified).
+    int64 memory_limit_in_bytes = 4;
+    // OOMScoreAdj adjusts the oom-killer score. Default: 0 (not specified).
+    int64 oom_score_adj = 5;
+    // CpusetCpus constrains the allowed set of logical CPUs. Default: "" (not specified).
+    string cpuset_cpus = 6;
+    // CpusetMems constrains the allowed set of memory nodes. Default: "" (not specified).
+    string cpuset_mems = 7;
+}
+
+message Mount {
+    string task_path = 1;
+    string host_path = 2;
+    bool readonly = 3;
+}
+
+message Device {
+    string task_path = 1;
+    string host_path = 2;
+    string permissions = 3;
+}
+
+message CreateTaskResponse {
+  string task_id = 1;
+}
