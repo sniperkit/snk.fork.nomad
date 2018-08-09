@@ -8,6 +8,7 @@ import "google/protobuf/empty.proto";
 service Driver {
     rpc RecoverTask(RecoverTaskRequest) returns (google.protobuf.Empty) {}
     rpc StartTask(StartTaskRequest) returns (StartTaskResponse) {}
+	rpc WaitTask(WaitTaskRequest) returns(WaitTaskResponse) {}
 }
 
 message RecoverTaskRequest {
@@ -67,4 +68,14 @@ message TaskHandle {
     TaskConfig config = 2;
     string state = 3;
     bytes msgpack_driver_state = 4;
+}
+
+message WaitTaskRequest {
+    string task_id = 1;
+}
+
+message WaitTaskResponse {
+    int32 exit_code = 1;
+    int32 signal = 2;
+    string err = 3;
 }
