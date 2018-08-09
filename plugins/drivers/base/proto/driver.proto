@@ -3,45 +3,26 @@ package hashicorp.nomad.plugins.drivers.base.proto;
 option go_package = "proto";
 
 import "google/protobuf/empty.proto";
-import "google/protobuf/struct.proto";
-import "google/protobuf/timestamp.proto";
-
-service TaskRecorder {
-    rpc Record(RecordRequest) returns (google.protobuf.Empty) {}
-}
-
-message RecordRequest {
-  string driver = 1;
-  string task_id = 2;
-  TaskEvent event = 3;
-}
-
-message TaskEvent {
-  string event_type = 1;
-  google.protobuf.Timestamp timestamp = 2;
-  string driver = 3;
-  string description = 4;
-  map<string, string> attrs = 5;
-}
+//import "google/protobuf/timestamp.proto";
 
 service Driver {
     rpc RecoverTask(RecoverTaskRequest) returns (google.protobuf.Empty) {}
-    rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse) {}
+    rpc StartTask(StartTaskRequest) returns (StartTaskResponse) {}
 }
 
 message RecoverTaskRequest {
     string task_id = 1;
-    repeated TaskEvent events = 2;
+    TaskHandle handle = 2;
 }
 
-message CreateTaskRequest {
-    TaskInfo task = 1;
+message StartTaskRequest {
+    TaskConfig task = 1;
 }
 
-message TaskInfo {
-    string name = 1;
+message TaskConfig {
+    string id = 1;
     string user = 2;
-    google.protobuf.Struct driver_config = 3;
+    bytes msgpack_driver_config = 3;
     map<string, string> env = 4;
     Resources resources = 5;
     repeated Mount mounts = 6;
@@ -77,6 +58,13 @@ message Device {
     string permissions = 3;
 }
 
-message CreateTaskResponse {
-  string task_id = 1;
+message StartTaskResponse {
+    TaskHandle handle = 1;
+}
+
+message TaskHandle {
+    string driver = 1;
+    TaskConfig config = 2;
+    string state = 3;
+    bytes msgpack_driver_state = 4;
 }
