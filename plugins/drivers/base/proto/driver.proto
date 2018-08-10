@@ -22,12 +22,14 @@ message StartTaskRequest {
 
 message TaskConfig {
     string id = 1;
-    string user = 2;
+    string name = 2;
     bytes msgpack_driver_config = 3;
     map<string, string> env = 4;
     Resources resources = 5;
     repeated Mount mounts = 6;
     repeated Device devices = 7;
+    string user = 8;
+    string alloc_dir = 9;
 }
 
 message Resources {
